@@ -18,6 +18,10 @@ export function csrfProtection(req, res, next) {
     return next();
   }
 
+  if (req.path === "/api/v1/payments/webhook" || req.originalUrl?.includes("/payments/webhook")) {
+    return next();
+  }
+
   if (hasBearerToken(req)) {
     return next();
   }

@@ -35,3 +35,9 @@ yarn-error.log*
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Paymob Skills & PDF Docs
+Paymob-AI-Integration-Skill-main/
+Paymob-AI-Integration-Skill-main.zip
+Paymob Documentation.pdf
+

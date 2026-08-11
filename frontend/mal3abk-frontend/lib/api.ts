@@ -1622,4 +1622,26 @@ export async function clearReadNotifications(options?: { emitRefresh?: boolean }
   return result
 }
 
+export async function createPaymobCheckoutSession(params: {
+  bookingId?: string
+  courtId?: string
+  date?: string
+  startTime?: string
+  endTime?: string
+  notes?: string
+  paymentMethodType?: "card" | "wallet"
+}) {
+  return await apiFetch<{
+    bookingId: string
+    paymentId: string
+    clientSecret: string
+    checkoutUrl: string
+    amount: number
+    currency: string
+  }>(`/payments/create-checkout-session`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  })
+}
+
 export { NOTIFICATIONS_REFRESH_EVENT }
