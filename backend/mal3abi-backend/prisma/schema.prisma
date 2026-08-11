@@ -34,6 +34,11 @@ enum PaymentStatus {
   refunded
 }
 
+enum PaymentProvider {
+  paymob
+  cash
+}
+
 enum NotificationType {
   info
   success
@@ -131,6 +136,7 @@ model User {
   pushSubscriptions      PushSubscription[]
   actedNotifications     Notification[]       @relation("NotificationActor")
   sessions               Session[]
+  payments               Payment[]
 
   deletedAt              DateTime?
   passwordResetTokenHash String?
@@ -306,6 +312,7 @@ model Booking {
 
   court Court @relation(fields: [courtId], references: [id])
   user  User  @relation(fields: [userId], references: [id])
+  payments Payment[]
 
   @@index([courtId, date])
   @@index([courtId, date, status])
@@ -314,6 +321,33 @@ model Booking {
   @@index([status, paymentStatus])
   @@index([createdAt])
   @@index([amount])
+}
+
+model Payment {
+  id                  String          @id @default(uuid())
+  bookingId           String
+  userId              String
+  provider            PaymentProvider @default(paymob)
+  paymobIntentionId   String?
+  paymobOrderId       String?         @unique
+  paymobTransactionId String?         @unique
+  clientSecret        String?
+  amountCents         Int
+  currency            String          @default("EGP")
+  paymentMethod       String?
+  status              PaymentStatus   @default(pending)
+  hmacVerified        Boolean         @default(false)
+  rawCallbackData     Json?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([userId])
+  @@index([paymobOrderId])
+  @@index([paymobTransactionId])
 }
 
 model Favorite {

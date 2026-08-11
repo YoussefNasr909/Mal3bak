@@ -22,6 +22,8 @@ import {
   Copy,
   Eye,
   QrCode,
+  Zap,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -100,6 +102,7 @@ import {
   updateBookingStatus as updateBookingStatusApi,
   cancelBooking as cancelBookingApi,
   getBooking as getBookingApi,
+  createPaymobCheckoutSession,
 } from "@/lib/api";
 
 /* ---------------------------------- utils --------------------------------- */
@@ -659,6 +662,30 @@ export function PlayerBookingsPage() {
         error?.message ||
           (language === "ar" ? "فشل إلغاء الحجز" : "Failed to cancel booking"),
       );
+    }
+  };
+
+  const [isPayingPaymob, setIsPayingPaymob] = useState(false);
+
+  const handlePaymobPayForBooking = async (bookingId: string) => {
+    if (isPayingPaymob) return;
+    setIsPayingPaymob(true);
+
+    try {
+      const sessionData = await createPaymobCheckoutSession({
+        bookingId,
+      });
+
+      toast.loading(language === "ar" ? "جاري التحويل لصفحة باي موب..." : "Redirecting to Paymob...");
+      window.location.href = sessionData.checkoutUrl;
+    } catch (e: any) {
+      toast.error(
+        e?.message ||
+          (language === "ar"
+            ? "فشل بدء عملية الدفع عبر باي موب"
+            : "Paymob payment initiation failed"),
+      );
+      setIsPayingPaymob(false);
     }
   };
 
@@ -1442,6 +1469,24 @@ export function PlayerBookingsPage() {
                         )}
                       </div>
                     </div>
+
+                    {selectedBooking.paymentStatus !== "paid" &&
+                      selectedBooking.status !== "cancelled" && (
+                        <Button
+                          className="w-full rounded-xl gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-md shadow-emerald-500/20 py-3 font-semibold"
+                          onClick={() => handlePaymobPayForBooking(selectedBooking.id)}
+                          disabled={isPayingPaymob}
+                        >
+                          {isPayingPaymob ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Zap className="h-4 w-4" />
+                          )}
+                          {language === "ar"
+                            ? "ادفع أونلاين بـ Paymob"
+                            : "Pay Online with Paymob"}
+                        </Button>
+                      )}
 
                     {canChange && (
                       <div className="grid grid-cols-1 gap-2">

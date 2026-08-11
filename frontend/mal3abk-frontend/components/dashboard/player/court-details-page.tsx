@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { createBooking, getPublicCourtAvailability, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
+import { createBooking, createPaymobCheckoutSession, getPublicCourtAvailability, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
 import {
   ArrowLeft,
   ArrowRight,
@@ -579,6 +579,37 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
       setIsSubmitting(false); // ✅ Reset loading state
     }
   }
+
+  const handlePaymobPay = async () => {
+    if (!user) {
+      toast.error(tr("يجب تسجيل الدخول أولاً", "You must log in first"))
+      router.push(`/auth/login?redirect=/dashboard/player/browse/${court.id}`)
+      return
+    }
+
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
+    try {
+      const selectedSlot = apiSlots.find((slot) => slot.start === selectedTime)
+      const bookingDate = selectedSlot?.date || getBookingDateForCourtSlot(selectedDate, selectedTime, court)
+      
+      const sessionData = await createPaymobCheckoutSession({
+        courtId: court.id,
+        date: bookingDate,
+        startTime: selectedTime,
+        endTime: selectedEndTime,
+        notes: toBookingNotePayload(bookingNote) ?? undefined,
+        paymentMethodType: "card",
+      })
+
+      toast.loading(tr("جاري التحويل لصفحة باي موب...", "Redirecting to Paymob..."))
+      window.location.href = sessionData.checkoutUrl
+    } catch (e: any) {
+      toast.error(e?.message || tr("فشل بدء عملية الدفع عبر باي موب", "Paymob payment initiation failed"))
+      setIsSubmitting(false)
+    }
+  }
   return (
     <div className={cn("min-h-screen pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-10", direction === "rtl" ? "rtl" : "ltr")} dir={direction}>
 
@@ -1133,21 +1164,28 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
             )}
           </div>
 
-          <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:px-6 sm:pb-6 sm:pt-4">
-            <Button variant="outline" className="rounded-2xl flex-1 bg-transparent" onClick={() => setBookingOpen(false)}>
+          <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:px-6 sm:pb-6 sm:pt-4 flex-col sm:flex-row">
+            <Button variant="outline" className="rounded-2xl bg-transparent" onClick={() => setBookingOpen(false)}>
               {t("common.cancel") ?? tr("إلغاء", "Cancel")}
             </Button>
 
             <Button
-              className="rounded-2xl flex-1 gap-2 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/30 active:scale-95 active:duration-75"
+              className="rounded-2xl flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 hover:scale-[1.02] shadow-lg shadow-emerald-500/20 active:scale-95"
+              onClick={handlePaymobPay}
+              disabled={!selectedDate || !selectedTime || !durationFitsCourtHours || !selectionOk.ok || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              {tr("ادفع أونلاين بـ Paymob", "Pay Online with Paymob")}
+            </Button>
+
+            <Button
+              variant="secondary"
+              className="rounded-2xl gap-2 transition-all duration-200 hover:scale-[1.02] active:scale-95"
               onClick={handleConfirmBooking}
               disabled={!selectedDate || !selectedTime || !durationFitsCourtHours || !selectionOk.ok || isSubmitting}
             >
-              {/* ✅ Add spinner animation when submitting */}
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {isSubmitting 
-                ? tr("جاري الحجز...", "Booking...") 
-                : (t("bookings.confirmBooking") ?? tr("تأكيد الحجز", "Confirm booking"))}
+              {tr("حجز بدون دفع", "Book (Pay Later)")}
             </Button>
           </DialogFooter>
         </DialogContent>
