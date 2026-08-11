@@ -1,0 +1,20 @@
+node_modules
+
+# Keep environment variables out of version control
+.env
+.env.local
+.env.*.local
+
+# Prisma generated client
+/generated/prisma
+
+# Build artifacts & logs
+dist/
+build/
+*.log
+npm-debug.log*
+
+# Editor directories and files
+.DS_Store
+.idea/
+.vscode/

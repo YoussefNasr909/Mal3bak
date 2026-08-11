@@ -1,0 +1,33 @@
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
+node_modules
+.next/
+
+# Environment files — NEVER commit these
+.env
+.env.*
+!.env.example
+.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build artifacts
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# Package manager lock files (keep only one)
+pnpm-lock.yaml
+*.encoding.bak
