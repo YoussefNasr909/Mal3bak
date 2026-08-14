@@ -34,6 +34,10 @@ export interface Court {
   createdAt?: Date;
   availableSlots?: number;
   displayOrder?: number;
+  // Payment configuration (admin-controlled)
+  allowOnlinePayment?: boolean;
+  paymentPolicy?: "full" | "percentage" | "fixed";
+  depositValue?: number;
 }
 
 

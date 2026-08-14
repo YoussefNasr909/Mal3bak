@@ -159,10 +159,12 @@ interface CourtFormData {
   coverImageIndex: number;
 
   status: "active" | "inactive" | "maintenance";
-
-  // Admin-only
-  managerId: string;
-  displayOrder: number;
+  managerId?: string;
+  displayOrder?: number;
+  // Payment settings
+  allowOnlinePayment: boolean;
+  paymentPolicy: "full" | "percentage" | "fixed";
+  depositValue: number;
 }
 
 // ---------------------------------------------
@@ -652,7 +654,7 @@ export function AdminCourtsPage() {
     } catch (error) {
       console.error(error);
       setBookingsState([]);
-      toast.error(language === "ar" ? "تعذر تحميل حجوزات الفترة المحددة" : "Failed to load bookings for the selected period");
+      toast.error(language === "ar" ? "تعذر حجوزات الفترة المحددة" : "Failed to load bookings for the selected period");
     }
   }, [language, period]);
 
@@ -866,6 +868,9 @@ export function AdminCourtsPage() {
     status: "active",
     managerId: "",
     displayOrder: 0,
+    allowOnlinePayment: true,
+    paymentPolicy: "full",
+    depositValue: 0,
   });
 
   const hasPeakWindowConflict = useMemo(
@@ -1195,6 +1200,9 @@ export function AdminCourtsPage() {
       status: "active",
       managerId: "",
       displayOrder: 0,
+      allowOnlinePayment: true,
+      paymentPolicy: "full",
+      depositValue: 0,
     });
     setCurrentStep(1);
   };
@@ -1373,6 +1381,10 @@ export function AdminCourtsPage() {
       images: finalImages,
       status: formData.status,
       managerId: formData.managerId || (base as any)?.managerId || "",
+      displayOrder: Number(formData.displayOrder || 0),
+      allowOnlinePayment: formData.allowOnlinePayment,
+      paymentPolicy: formData.paymentPolicy,
+      depositValue: formData.depositValue,
     };
 
     // Only add the ID if we are updating an existing record
@@ -1536,6 +1548,9 @@ export function AdminCourtsPage() {
       status: (court as any).status || "active",
       managerId: (court as any).managerId || "",
       displayOrder: (court as any).displayOrder || 0,
+      allowOnlinePayment: (court as any).allowOnlinePayment !== false,
+      paymentPolicy: (court as any).paymentPolicy ?? "full",
+      depositValue: Number((court as any).depositValue ?? 0),
     });
 
     setCurrentStep(1);
@@ -2228,7 +2243,7 @@ export function AdminCourtsPage() {
                 </span>
                 <span className="block text-xs leading-5 text-muted-foreground">
                   {isAr
-                    ? "\u0644\u0644\u0645\u0644\u0627\u0639\u0628 \u0627\u0644\u0644\u064a\u0644\u064a\u0629 \u0641\u0642\u0637\u060c \u0645\u062b\u0644 08:00 \u0625\u0644\u0649 03:00. \u0627\u0644\u062d\u062c\u0648\u0632\u0627\u062a \u0628\u0639\u062f \u0645\u0646\u062a\u0635\u0641 \u0627\u0644\u0644\u064a\u0644 \u062a\u064f\u062d\u0633\u0628 \u0636\u0645\u0646 \u0627\u0644\u064a\u0648\u0645 \u0627\u0644\u0630\u064a \u0628\u062f\u0623 \u0641\u064a\u0647 \u0627\u0644\u0645\u0644\u0639\u0628 \u0644\u0644\u062a\u0642\u0627\u0631\u064a\u0631 \u0648\u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a\u060c \u0648\u064a\u0638\u0647\u0631 \u0644\u0644\u0627\u0639\u0628 \u0627\u0644\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062d\u0642\u064a\u0642\u064a. \u0644\u0627 \u062a\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0645\u0644\u0627\u0639\u0628 24 \u0633\u0627\u0639\u0629."
+                    ? "\u0644\u0644\u0645\u0644\u0627\u0639\u0628 \u0627\u0644\u0644\u064a\u0644\u064a\u0629 \u0641\u0642\u0637\u060c \u0645\u062b\u0644 08:00 \u0625\u0644\u0649 03:00. \u0627\u0644\u062d\u062c\u0648\u0632\u0627\u062a \u0628\u0639\u062f \u0645\u0646\u062a\u0635\u0641 \u0627\u0644\u0644\u064a\u0644 \u062a\u064f\u062d\u0633\u0628 \u0636\u0645\u0646 \u0627\u0644\u064a\u0648\u0645 \u0627\u0644\u0630\u064a \u0628\u062f\u0623 \u0641\u064a\u0647 \u0627\u0644\u0645\u0644\u0639\u0628 \u0644\u0644\u062a\u0642\u0627\u0631\u064a\u0631 \u0648\u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a\u060c \u0648\u064a\u0638\u0648\u0631 \u0644\u0644\u0627\u0639\u0628 \u0627\u0644\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062d\u0642\u064a\u0642\u064a. \u0644\u0627 \u062a\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0645\u0644\u0627\u0639\u0628 24 \u0633\u0627\u0639\u0629."
                     : "For overnight courts only, like 08:00 AM to 03:00 AM. Slots after midnight count toward the day the court opened for reports and revenue; players still see the real calendar date. 24-hour courts are not affected."}
                 </span>
               </span>
@@ -2255,16 +2270,96 @@ export function AdminCourtsPage() {
               </div>
             )}
 
-            <div className="flex items-start gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+      <div className="flex items-start gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
         <span className="inline-flex min-h-8 min-w-10 items-center justify-center rounded-xl border border-border/60 bg-background px-2 text-xs font-black text-foreground">
-          {isAr ? "\u062c.\u0645" : "EGP"}
+          {isAr ? "ج.م" : "EGP"}
         </span>
         <p className="text-sm leading-6 text-muted-foreground">
           {isAr
-            ? "\u0627\u0644\u0623\u0633\u0639\u0627\u0631 \u0628\u0627\u0644\u0633\u0627\u0639\u0629. \u0627\u0636\u0628\u0637 \u0633\u0639\u0631 \u0627\u0644\u0630\u0631\u0648\u0629 \u0648\u063a\u064a\u0631 \u0627\u0644\u0630\u0631\u0648\u0629 \u062d\u0633\u0628 \u0633\u0627\u0639\u0627\u062a \u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0645\u0644\u0639\u0628."
+            ? "الأسعار بالساعة. اضبط سعر الذروة وغير الذروة حسب ساعات تشغيل الملعب."
             : "Prices are per hour. Set off-peak and peak prices based on the court operating hours."}
         </p>
       </div>
+
+            {/* Payment Settings */}
+            <div className="space-y-4 rounded-2xl border border-primary/20 bg-primary/5 p-4 mt-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/15">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{isAr ? "إعدادات الدفع" : "Payment Settings"}</p>
+                </div>
+              </div>
+
+              {/* Online Payment Toggle */}
+              <div className="flex items-center justify-between rounded-xl border border-border/50 bg-background/60 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">{isAr ? "السماح بالدفع الإلكتروني" : "Allow Online Payments"}</p>
+                  <p className="text-xs text-muted-foreground">{isAr ? "يظهر زر الدفع الإلكتروني للاعبين" : "Players will see the Pay Online button"}</p>
+                </div>
+                <button
+                  type="button"
+                  id="admin-allow-online-payment-toggle"
+                  role="switch"
+                  aria-checked={formData.allowOnlinePayment}
+                  onClick={() => setFormData({ ...formData, allowOnlinePayment: !formData.allowOnlinePayment, paymentPolicy: "full", depositValue: 0 })}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    formData.allowOnlinePayment ? "bg-primary" : "bg-muted"
+                  )}
+                >
+                  <span className={cn("pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200", formData.allowOnlinePayment ? "translate-x-5" : "translate-x-0")} />
+                </button>
+              </div>
+
+              {/* Payment Policy — only shown if online payments are enabled */}
+              {formData.allowOnlinePayment && (
+                <div className="space-y-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="admin-payment-policy-select">{isAr ? "نوع الدفع المطلوب" : "Payment Requirement"}</Label>
+                    <Select
+                      value={formData.paymentPolicy}
+                      onValueChange={(value) => setFormData({ ...formData, paymentPolicy: value as any, depositValue: 0 })}
+                    >
+                      <SelectTrigger id="admin-payment-policy-select" className="rounded-2xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="full">{isAr ? "الدفع الكامل" : "Full Payment"}</SelectItem>
+                        <SelectItem value="percentage">{isAr ? "دفع نسبة مئوية مقدمًا" : "Percentage Deposit"}</SelectItem>
+                        <SelectItem value="fixed">{isAr ? "دفع مبلغ ثابت مقدمًا" : "Fixed Deposit Amount"}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {formData.paymentPolicy !== "full" && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="admin-deposit-value-input">
+                        {formData.paymentPolicy === "percentage"
+                          ? isAr ? "نسبة الدفع المقدم (%)" : "Deposit Percentage (%)"
+                          : isAr ? "مبلغ الدفع المقدم (EGP)" : "Deposit Amount (EGP)"}
+                      </Label>
+                      <Input
+                        id="admin-deposit-value-input"
+                        type="number"
+                        min={1}
+                        max={formData.paymentPolicy === "percentage" ? 100 : undefined}
+                        value={formData.depositValue || ""}
+                        onChange={(e) => setFormData({ ...formData, depositValue: Number(e.target.value) })}
+                        placeholder={formData.paymentPolicy === "percentage" ? "e.g. 50" : "e.g. 150"}
+                        className="rounded-2xl"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {formData.paymentPolicy === "percentage"
+                          ? isAr ? "المبلغ المحصّل مقدمًا = (السعر الكلي × النسبة) / 100" : "Amount collected upfront = (total price × percentage) / 100"
+                          : isAr ? "سيتم تحصيل هذا المبلغ فقط عند الدفع الإلكتروني. الباقي يُدفع في الملعب." : "Only this amount is charged online. Remainder is paid at the court."}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         );
 
@@ -2517,6 +2612,7 @@ export function AdminCourtsPage() {
                   : "Admin-only field to assign who manages this court."}
               </AlertDescription>
             </Alert>
+
           </div>
         );
 

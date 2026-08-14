@@ -1084,6 +1084,11 @@ function formatBooking(b) {
     checkInWindowOpenTime: fmt(openD),
     checkInWindowCloseTime: fmt(closeD),
     useOpeningDayForOvernightBookings: useOpeningDay,
+    court: b.court ? {
+      allowOnlinePayment: b.court.allowOnlinePayment !== false,
+      paymentPolicy: b.court.paymentPolicy || "full",
+      depositValue: Number(b.court.depositValue || 0),
+    } : undefined,
   };
 }
 
@@ -1633,6 +1638,13 @@ export async function createBookingService(payload, currentUser) {
     );
     const checkInCode = await generateUniqueCode(tx);
 
+    let computedAmount = pricing.totalPrice;
+    if (court.paymentPolicy === "percentage") {
+      computedAmount = (pricing.totalPrice * Number(court.depositValue)) / 100;
+    } else if (court.paymentPolicy === "fixed") {
+      computedAmount = Math.min(pricing.totalPrice, Number(court.depositValue));
+    }
+
     const booking = await tx.booking.create({
       data: {
         courtId: court.id,
@@ -1646,7 +1658,7 @@ export async function createBookingService(payload, currentUser) {
           court.useOpeningDayForOvernightBookings === true,
         duration: pricing.duration,
         totalPrice: toDecimal(pricing.totalPrice),
-        amount: toDecimal(pricing.totalPrice),
+        amount: toDecimal(computedAmount),
         status: "confirmed",
         paymentStatus: "pending",
         paymentMethod: null,

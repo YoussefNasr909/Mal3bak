@@ -41,9 +41,14 @@ export function errorHandler(err, req, res, next) {
   const status = err.status || err.statusCode || 500;
   const isProd = process.env.NODE_ENV === "production";
 
+  // Log error to terminal so we can see what actually crashed
+  if (status >= 500) {
+    console.error("🔥 Backend Error:", err);
+  }
+
   // In production, never expose internal error details for 5xx errors.
   const message =
-    status >= 500 && err?.expose !== true
+    isProd && status >= 500 && err?.expose !== true
       ? "Internal server error"
       : err.message || "Server error";
 

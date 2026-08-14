@@ -31,12 +31,19 @@ enum BookingStatus {
 enum PaymentStatus {
   pending
   paid
+  failed
   refunded
 }
 
 enum PaymentProvider {
   paymob
   cash
+}
+
+enum PaymentPolicy {
+  full
+  percentage
+  fixed
 }
 
 enum NotificationType {
@@ -124,19 +131,19 @@ model User {
   license          String?
   subscriptionPlan String?
 
-  courts                 Court[]          @relation("ManagerCourts")
-  bookings               Booking[]
-  favorites              Favorite[]
-  managedTournaments     Tournament[]     @relation("ManagedTournaments")
-  captainTournamentTeams TournamentTeam[] @relation("CaptainTournamentTeams")
-  captainTournamentWaitlistEntries TournamentWaitlistEntry[] @relation("CaptainTournamentWaitlistEntries")
-  tournamentActivities   TournamentActivity[] @relation("TournamentActivityActor")
-  notifications          Notification[]       @relation("UserNotifications")
-  notificationPreference UserNotificationPreference?
-  pushSubscriptions      PushSubscription[]
-  actedNotifications     Notification[]       @relation("NotificationActor")
-  sessions               Session[]
-  payments               Payment[]
+  courts                           Court[]                     @relation("ManagerCourts")
+  bookings                         Booking[]
+  favorites                        Favorite[]
+  managedTournaments               Tournament[]                @relation("ManagedTournaments")
+  captainTournamentTeams           TournamentTeam[]            @relation("CaptainTournamentTeams")
+  captainTournamentWaitlistEntries TournamentWaitlistEntry[]   @relation("CaptainTournamentWaitlistEntries")
+  tournamentActivities             TournamentActivity[]        @relation("TournamentActivityActor")
+  notifications                    Notification[]              @relation("UserNotifications")
+  notificationPreference           UserNotificationPreference?
+  pushSubscriptions                PushSubscription[]
+  actedNotifications               Notification[]              @relation("NotificationActor")
+  sessions                         Session[]
+  payments                         Payment[]
 
   deletedAt              DateTime?
   passwordResetTokenHash String?
@@ -146,25 +153,25 @@ model User {
 }
 
 model Notification {
-  id         String               @id @default(uuid())
-  userId     String
+  id          String               @id @default(uuid())
+  userId      String
   actorUserId String?
-  type       NotificationType     @default(info)
-  priority   NotificationPriority @default(normal)
-  category   NotificationCategory
-  eventKey   String               @default("system_announcement")
-  title      String
-  titleAr    String?
-  message    String
-  messageAr  String?
-  link       String?
-  metadata   Json?
-  readAt     DateTime?
-  createdAt  DateTime             @default(now())
-  updatedAt  DateTime             @updatedAt
+  type        NotificationType     @default(info)
+  priority    NotificationPriority @default(normal)
+  category    NotificationCategory
+  eventKey    String               @default("system_announcement")
+  title       String
+  titleAr     String?
+  message     String
+  messageAr   String?
+  link        String?
+  metadata    Json?
+  readAt      DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 
-  user  User  @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-  actor User? @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  user       User                   @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  actor      User?                  @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   deliveries NotificationDelivery[]
 
   @@index([userId, priority, readAt, createdAt])
@@ -187,15 +194,15 @@ model UserNotificationPreference {
 }
 
 model PushSubscription {
-  id        String   @id @default(uuid())
-  userId    String
-  endpoint  String   @unique
-  p256dhKey String
-  authKey   String
-  userAgent String?
+  id         String   @id @default(uuid())
+  userId     String
+  endpoint   String   @unique
+  p256dhKey  String
+  authKey    String
+  userAgent  String?
   lastSeenAt DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -203,7 +210,7 @@ model PushSubscription {
 }
 
 model NotificationDelivery {
-  id             String                     @id @default(uuid())
+  id             String                      @id @default(uuid())
   notificationId String
   channel        NotificationDeliveryChannel
   status         NotificationDeliveryStatus
@@ -211,8 +218,8 @@ model NotificationDelivery {
   externalId     String?
   errorMessage   String?
   sentAt         DateTime?
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
 
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
@@ -239,36 +246,39 @@ model Session {
 }
 
 model Court {
-  id            String      @id @default(uuid())
-  name          String
-  nameEn        String
-  sportType     String
-  city          String
-  cityEn        String
-  address       String?
-  addressEn     String?
-  location      String?
-  locationEn    String?
-  peakPrice     Decimal     @db.Decimal(10, 2)
-  offPeakPrice  Decimal     @db.Decimal(10, 2)
-  peakStartTime String      @default("18:00")
-  peakEndTime   String      @default("06:00")
-  images        String[]    @default([])
-  status        CourtStatus @default(active)
-  openTime      String      @default("08:00")
-  closeTime     String      @default("23:00")
-  useOpeningDayForOvernightBookings Boolean @default(false)
-  description   String?
-  descriptionEn String?
-  amenities     String[]    @default([])
-  amenitiesEn   String[]    @default([])
-  rating        Float       @default(0)
-  reviewCount   Int         @default(0)
-  totalBookings Int         @default(0)
-  displayOrder  Int         @default(0)
-  latitude      Float?
-  longitude     Float?
-  maxPlayers    Int         @default(10)
+  id                                String        @id @default(uuid())
+  name                              String
+  nameEn                            String
+  sportType                         String
+  city                              String
+  cityEn                            String
+  address                           String?
+  addressEn                         String?
+  location                          String?
+  locationEn                        String?
+  peakPrice                         Decimal       @db.Decimal(10, 2)
+  offPeakPrice                      Decimal       @db.Decimal(10, 2)
+  peakStartTime                     String        @default("18:00")
+  peakEndTime                       String        @default("06:00")
+  images                            String[]      @default([])
+  status                            CourtStatus   @default(active)
+  openTime                          String        @default("08:00")
+  closeTime                         String        @default("23:00")
+  useOpeningDayForOvernightBookings Boolean       @default(false)
+  allowOnlinePayment                Boolean       @default(true)
+  paymentPolicy                     PaymentPolicy @default(full)
+  depositValue                      Decimal       @default(0) @db.Decimal(10, 2)
+  description                       String?
+  descriptionEn                     String?
+  amenities                         String[]      @default([])
+  amenitiesEn                       String[]      @default([])
+  rating                            Float         @default(0)
+  reviewCount                       Int           @default(0)
+  totalBookings                     Int           @default(0)
+  displayOrder                      Int           @default(0)
+  latitude                          Float?
+  longitude                         Float?
+  maxPlayers                        Int           @default(10)
 
   managerId         String
   manager           User              @relation("ManagerCourts", fields: [managerId], references: [id])
@@ -285,33 +295,33 @@ model Court {
 }
 
 model Booking {
-  id               String        @id @default(uuid())
-  courtId          String
-  userId           String
+  id                                String        @id @default(uuid())
+  courtId                           String
+  userId                            String
   // Cairo-local booking day (YYYY-MM-DD). Convert with getAbsoluteBookingTimes
   // before comparing against absolute DateTime ranges like court closures.
-  date             String
-  startTime        String
-  endTime          String
-  sessionOpenTime  String
-  sessionCloseTime String
-  useOpeningDayForOvernightBookings Boolean @default(false)
-  duration         Int
-  totalPrice       Decimal       @db.Decimal(10, 2)
-  amount           Decimal       @db.Decimal(10, 2)
-  status           BookingStatus @default(confirmed)
-  paymentStatus    PaymentStatus @default(paid)
-  paymentMethod    String?
-  checkInCode      String        @unique
-  checkInVerified  Boolean       @default(false)
-  checkedIn        Boolean       @default(false)
-  checkedInAt      DateTime?
-  notes            String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  date                              String
+  startTime                         String
+  endTime                           String
+  sessionOpenTime                   String
+  sessionCloseTime                  String
+  useOpeningDayForOvernightBookings Boolean       @default(false)
+  duration                          Int
+  totalPrice                        Decimal       @db.Decimal(10, 2)
+  amount                            Decimal       @db.Decimal(10, 2)
+  status                            BookingStatus @default(confirmed)
+  paymentStatus                     PaymentStatus @default(pending)
+  paymentMethod                     String?
+  checkInCode                       String        @unique
+  checkInVerified                   Boolean       @default(false)
+  checkedIn                         Boolean       @default(false)
+  checkedInAt                       DateTime?
+  notes                             String?
+  createdAt                         DateTime      @default(now())
+  updatedAt                         DateTime      @updatedAt
 
-  court Court @relation(fields: [courtId], references: [id])
-  user  User  @relation(fields: [userId], references: [id])
+  court    Court     @relation(fields: [courtId], references: [id])
+  user     User      @relation(fields: [userId], references: [id])
   payments Payment[]
 
   @@index([courtId, date])
@@ -402,26 +412,26 @@ model Tournament {
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 
-  manager User              @relation("ManagedTournaments", fields: [managerId], references: [id])
-  courts  TournamentCourt[]
-  teams   TournamentTeam[]
+  manager         User                      @relation("ManagedTournaments", fields: [managerId], references: [id])
+  courts          TournamentCourt[]
+  teams           TournamentTeam[]
   waitlistEntries TournamentWaitlistEntry[]
-  matches TournamentMatch[]
-  activities TournamentActivity[]
+  matches         TournamentMatch[]
+  activities      TournamentActivity[]
 
   @@index([managerId])
   @@index([status])
 }
 
 model TournamentActivity {
-  id          String   @id @default(uuid())
+  id           String   @id @default(uuid())
   tournamentId String
-  actorUserId String?
-  action      String
-  title       String
-  description String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  actorUserId  String?
+  action       String
+  title        String
+  description  String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
 
   tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   actor      User?      @relation("TournamentActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -456,11 +466,11 @@ model TournamentTeam {
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
-  tournament Tournament        @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  captain    User              @relation("CaptainTournamentTeams", fields: [captainUserId], references: [id])
-  matchesA   TournamentMatch[] @relation("TournamentMatchTeamA")
-  matchesB   TournamentMatch[] @relation("TournamentMatchTeamB")
-  wonMatches TournamentMatch[] @relation("TournamentMatchWinner")
+  tournament                  Tournament                @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  captain                     User                      @relation("CaptainTournamentTeams", fields: [captainUserId], references: [id])
+  matchesA                    TournamentMatch[]         @relation("TournamentMatchTeamA")
+  matchesB                    TournamentMatch[]         @relation("TournamentMatchTeamB")
+  wonMatches                  TournamentMatch[]         @relation("TournamentMatchWinner")
   promotedFromWaitlistEntries TournamentWaitlistEntry[] @relation("PromotedTournamentWaitlistTeam")
 
   @@unique([tournamentId, captainUserId])
@@ -469,22 +479,22 @@ model TournamentTeam {
 }
 
 model TournamentWaitlistEntry {
-  id            String                  @id @default(uuid())
-  tournamentId  String
-  captainUserId String
-  teamName      String
-  partnerName   String?
-  partnerPhone  String?
-  status        TournamentWaitlistStatus @default(waiting)
-  notes         String?
+  id             String                   @id @default(uuid())
+  tournamentId   String
+  captainUserId  String
+  teamName       String
+  partnerName    String?
+  partnerPhone   String?
+  status         TournamentWaitlistStatus @default(waiting)
+  notes          String?
   promotedTeamId String?
-  promotedAt    DateTime?
-  removedAt     DateTime?
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
+  promotedAt     DateTime?
+  removedAt      DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
 
-  tournament Tournament     @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  captain    User           @relation("CaptainTournamentWaitlistEntries", fields: [captainUserId], references: [id])
+  tournament   Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  captain      User            @relation("CaptainTournamentWaitlistEntries", fields: [captainUserId], references: [id])
   promotedTeam TournamentTeam? @relation("PromotedTournamentWaitlistTeam", fields: [promotedTeamId], references: [id], onDelete: SetNull)
 
   @@unique([tournamentId, captainUserId])
@@ -494,25 +504,25 @@ model TournamentWaitlistEntry {
 }
 
 model TournamentMatch {
-  id           String                @id @default(uuid())
-  tournamentId String
-  roundNumber  Int
-  matchNumber  Int
-  teamAId      String?
-  teamBId      String?
-  winnerTeamId String?
-  courtId      String?
-  startAt      DateTime?
-  endAt        DateTime?
+  id               String                @id @default(uuid())
+  tournamentId     String
+  roundNumber      Int
+  matchNumber      Int
+  teamAId          String?
+  teamBId          String?
+  winnerTeamId     String?
+  courtId          String?
+  startAt          DateTime?
+  endAt            DateTime?
   teamACheckedInAt DateTime?
   teamBCheckedInAt DateTime?
-  status       TournamentMatchStatus @default(pending)
-  stage        String                @default("knockout")
-  groupId      String?
-  scoreJson    Json?
-  closureId    String?               @unique
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  status           TournamentMatchStatus @default(pending)
+  stage            String                @default("knockout")
+  groupId          String?
+  scoreJson        Json?
+  closureId        String?               @unique
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   tournament Tournament      @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   teamA      TournamentTeam? @relation("TournamentMatchTeamA", fields: [teamAId], references: [id], onDelete: SetNull)

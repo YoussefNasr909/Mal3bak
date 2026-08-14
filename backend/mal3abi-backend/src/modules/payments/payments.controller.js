@@ -17,11 +17,7 @@ export async function createCheckoutSession(req, res, next) {
       ...value,
     });
 
-    res.status(201).json({
-      ok: true,
-      message: "Checkout session created successfully",
-      data: result,
-    });
+    res.status(201).json(result);
   } catch (error) {
     next(error);
   }
@@ -57,12 +53,10 @@ export async function handlePaymobWebhook(req, res) {
 export async function getPaymentStatus(req, res, next) {
   try {
     const { bookingId } = req.params;
-    const result = await getPaymentStatusService(bookingId, req.user.id);
+    const { transactionId } = req.query; // Accept transactionId from frontend URL
+    const result = await getPaymentStatusService(bookingId, req.user.id, transactionId);
 
-    res.status(200).json({
-      ok: true,
-      data: result,
-    });
+    res.status(200).json(result); // Return unwrapped result
   } catch (error) {
     next(error);
   }
