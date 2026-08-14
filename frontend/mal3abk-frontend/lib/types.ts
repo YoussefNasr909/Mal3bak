@@ -109,6 +109,18 @@ export interface Booking {
   courtCloseTime?: string;
   useOpeningDayForOvernightBookings?: boolean;
   court?: Court;
+  payments?: PaymentHistoryItem[];
+  latestPayment?: PaymentHistoryItem | null;
+}
+
+export interface PaymentHistoryItem {
+  id: string;
+  amount: number;
+  currency?: string;
+  status: string;
+  paymentMethod?: string;
+  paymobTransactionId?: string | null;
+  createdAt: string | Date;
 }
 
 export interface RevenueReportSummary {

@@ -191,14 +191,32 @@ const bookingUserSelect = {
   avatar: true,
 };
 
+const bookingPaymentSelect = {
+  id: true,
+  amount: true,
+  currency: true,
+  status: true,
+  paymentMethod: true,
+  paymobTransactionId: true,
+  createdAt: true,
+};
+
 const bookingDetailsInclude = {
   court: { select: bookingCourtSelect },
   user: { select: bookingUserSelect },
+  payments: {
+    select: bookingPaymentSelect,
+    orderBy: { createdAt: "desc" },
+  },
 };
 
 const bookingListInclude = {
   court: { select: bookingCourtSelect },
   user: { select: bookingUserSelect },
+  payments: {
+    select: bookingPaymentSelect,
+    orderBy: { createdAt: "desc" },
+  },
 };
 
 const IN_MEMORY_BOOKINGS_BATCH_SIZE = 200;
@@ -1084,6 +1102,29 @@ function formatBooking(b) {
     checkInWindowOpenTime: fmt(openD),
     checkInWindowCloseTime: fmt(closeD),
     useOpeningDayForOvernightBookings: useOpeningDay,
+    payments: Array.isArray(b.payments)
+      ? b.payments.map((p) => ({
+          id: p.id,
+          amount: Number(p.amount),
+          currency: p.currency || "EGP",
+          status: p.status,
+          paymentMethod: p.paymentMethod || "card",
+          paymobTransactionId: p.paymobTransactionId || null,
+          createdAt: p.createdAt,
+        }))
+      : [],
+    latestPayment:
+      Array.isArray(b.payments) && b.payments.length > 0
+        ? {
+            id: b.payments[0].id,
+            amount: Number(b.payments[0].amount),
+            currency: b.payments[0].currency || "EGP",
+            status: b.payments[0].status,
+            paymentMethod: b.payments[0].paymentMethod || "card",
+            paymobTransactionId: b.payments[0].paymobTransactionId || null,
+            createdAt: b.payments[0].createdAt,
+          }
+        : null,
     court: b.court ? {
       allowOnlinePayment: b.court.allowOnlinePayment !== false,
       paymentPolicy: b.court.paymentPolicy || "full",
