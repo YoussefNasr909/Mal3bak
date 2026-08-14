@@ -17,6 +17,8 @@ interface BookingStatusData {
       name: string;
       nameEn?: string;
       address?: string;
+      paymentPolicy?: string; // "full" | "percentage" | "fixed"
+      allowOnlinePayment?: boolean;
     };
   };
   payment?: {
@@ -37,7 +39,10 @@ function PaymentCompleteContent() {
   // Paymob redirect parameters
   const isPaymobSuccess = searchParams.get("success") === "true";
   const isPaymobPending = searchParams.get("pending") === "true";
-  const bookingId = searchParams.get("booking_id") || searchParams.get("special_reference") || searchParams.get("merchant_order_id");
+  const rawBookingId = searchParams.get("booking_id") || searchParams.get("special_reference") || searchParams.get("merchant_order_id");
+  // Strip the timestamp suffix we append to avoid Paymob duplicate order errors (e.g. "uuid_1723641234567" → "uuid")
+  const bookingId = rawBookingId ? rawBookingId.split("_").slice(0, 5).join("-") : null;
+  const id = searchParams.get("id"); // Paymob transaction ID in redirect URL
 
   useEffect(() => {
     async function fetchStatus() {
@@ -48,7 +53,8 @@ function PaymentCompleteContent() {
 
       try {
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
-        const res = await fetch(`${backendUrl}/api/v1/payments/status/${bookingId}`, {
+        const txIdParam = id ? `?transactionId=${id}` : "";
+        const res = await fetch(`${backendUrl}/api/v1/payments/status/${bookingId}${txIdParam}`, {
           headers: {
             "Content-Type": "application/json",
           },
@@ -145,10 +151,18 @@ function PaymentCompleteContent() {
               )}
             </div>
 
+            {/* Payment type notice */}
+            {data?.booking.court?.paymentPolicy && data.booking.court.paymentPolicy !== "full" && (
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-amber-300 text-sm font-medium text-left flex items-start gap-2">
+                <Clock className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>A deposit has been paid. Please pay the remaining balance directly at the court upon arrival.</span>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="pt-2 flex flex-col sm:flex-row gap-3">
               <button
-                onClick={() => router.push("/my-bookings")}
+                onClick={() => router.push("/dashboard/player/bookings")}
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 px-4 font-semibold text-slate-950 hover:bg-emerald-400 transition-all"
               >
                 <span>View My Bookings</span>

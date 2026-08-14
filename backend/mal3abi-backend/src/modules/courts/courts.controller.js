@@ -23,6 +23,11 @@ import {
 // -------- Dashboard (admin/manager) --------
 export async function createCourt(req, res, next) {
   try {
+    if (req.user.role !== "admin") {
+      delete req.body.allowOnlinePayment;
+      delete req.body.paymentPolicy;
+      delete req.body.depositValue;
+    }
     const court = await createCourtService(req.body, req.user);
     return res.status(201).json({ court });
   } catch (e) {
@@ -51,6 +56,11 @@ export async function listCourts(req, res, next) {
 
 export async function updateCourt(req, res, next) {
   try {
+    if (req.user.role !== "admin") {
+      delete req.body.allowOnlinePayment;
+      delete req.body.paymentPolicy;
+      delete req.body.depositValue;
+    }
     const court = await updateCourtService(req.params.courtId, req.body, req.user);
     return res.json({ court });
   } catch (e) {

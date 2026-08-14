@@ -63,8 +63,8 @@ export async function createPaymentIntention({
       email: customer.email || "player@mal3bk.com",
     },
     special_reference: specialReference,
-    notification_url: notificationUrl || `${process.env.BACKEND_URL || "http://localhost:5000"}/api/v1/payments/webhook`,
-    redirection_url: redirectionUrl || `${process.env.FRONTEND_URL || "http://localhost:3000"}/payment/complete`,
+    notification_url: notificationUrl || `${process.env.BACKEND_URL || "http://localhost:4000"}/api/v1/payments/webhook`,
+    redirection_url: redirectionUrl || `${process.env.PUBLIC_FRONTEND_URL || process.env.FRONTEND_URL || "http://localhost:3000"}/payment/complete?booking_id=${specialReference}`,
   };
 
   const response = await fetch(`${getPaymobBaseUrl()}/v1/intention/`, {
@@ -84,7 +84,7 @@ export async function createPaymentIntention({
 
   const data = await response.json();
   const publicKey = getPaymobPublicKey();
-  const checkoutUrl = `${getPaymobBaseUrl()}/unifiedcheckout/?publicKey=${publicKey}&clientSecret=${data.client_secret}`;
+  const checkoutUrl = `https://eg.checkout.paymob.com/?publicKey=${publicKey}&clientSecret=${data.client_secret}`;
 
   return {
     id: data.id,

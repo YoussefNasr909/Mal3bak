@@ -32,7 +32,11 @@ export async function createCheckoutSessionService({
 
   let booking;
   let amountCents;
+  let amount;
   let court;
+  let bookingDate = date;
+  let bookingStartTime = startTime;
+  let bookingEndTime = endTime;
 
   if (bookingId) {
     booking = await prisma.booking.findUnique({
@@ -53,7 +57,19 @@ export async function createCheckoutSessionService({
     }
 
     court = booking.court;
-    amountCents = Math.round(Number(booking.amount) * 100);
+
+    // Guard: court must allow online payments
+    if (court.allowOnlinePayment === false) {
+      const err = new Error("This court does not accept online payments.");
+      err.status = 403;
+      throw err;
+    }
+
+    amount = Number(booking.amount) || Number(booking.totalPrice) || 0;
+    amountCents = Math.round(amount * 100);
+    bookingDate = booking.date;
+    bookingStartTime = booking.startTime;
+    bookingEndTime = booking.endTime;
   } else {
     court = await prisma.court.findUnique({
       where: { id: courtId },
@@ -65,6 +81,13 @@ export async function createCheckoutSessionService({
       throw err;
     }
 
+    // Guard: court must allow online payments
+    if (court.allowOnlinePayment === false) {
+      const err = new Error("This court does not accept online payments.");
+      err.status = 403;
+      throw err;
+    }
+
     const startHour = parseInt(startTime.split(":")[0], 10);
     const endHour = parseInt(endTime.split(":")[0], 10);
     let durationHours = endHour - startHour;
@@ -72,6 +95,7 @@ export async function createCheckoutSessionService({
 
     const pricePerHour = Number(court.peakPrice) || 100;
     const totalPrice = durationHours * pricePerHour;
+    amount = totalPrice;
     amountCents = Math.round(totalPrice * 100);
 
     const checkInCode = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -107,7 +131,7 @@ export async function createCheckoutSessionService({
   const intentionData = await createPaymentIntention({
     amountCents,
     currency: "EGP",
-    specialReference: booking.id,
+    specialReference: `${booking.id}_${Date.now()}`,
     paymentMethodType,
     customer: {
       firstName,
@@ -117,7 +141,7 @@ export async function createCheckoutSessionService({
     },
     items: [
       {
-        name: `${court.name || "Court"} Booking (${date} ${startTime}-${endTime})`,
+        name: `${court.name || "Court"} Booking (${bookingDate} ${bookingStartTime}-${bookingEndTime})`,
         amount: amountCents,
         quantity: 1,
       },
@@ -145,7 +169,7 @@ export async function createCheckoutSessionService({
     paymentId: payment.id,
     clientSecret: intentionData.clientSecret,
     checkoutUrl: intentionData.checkoutUrl,
-    amount: totalPrice,
+    amount,
     currency: "EGP",
   };
 }
@@ -168,7 +192,9 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
 
   const transactionId = String(obj.id);
   const paymobOrderId = String(obj.order?.id || "");
-  const specialReference = obj.order?.merchant_order_id || obj.special_reference;
+  const rawReference = obj.order?.merchant_order_id || obj.special_reference || "";
+  // Strip off the timestamp we appended to avoid Paymob duplicate order errors
+  const specialReference = rawReference.split('_')[0];
   const isPaidSuccess = obj.success === true && obj.pending === false;
 
   // 2. Perform Atomic Database Update with Deduplication
@@ -247,23 +273,24 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
     } else {
       // Payment Failed or Pending
       if (payment) {
+        const newStatus = obj.error_occured ? "failed" : "pending";
         payment = await tx.payment.update({
           where: { id: payment.id },
           data: {
-            status: "pending",
+            status: newStatus,
             paymobTransactionId: transactionId,
             hmacVerified: true,
             rawCallbackData: obj,
           },
         });
 
-        // Optionally cancel booking if transaction explicitly failed
+        // Cancel booking if transaction explicitly failed
         if (obj.error_occured) {
           await tx.booking.update({
             where: { id: payment.bookingId },
             data: {
               status: "cancelled",
-              paymentStatus: "pending",
+              paymentStatus: "failed",
             },
           });
         }
@@ -279,7 +306,7 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
 /**
  * Get payment status for a booking (with active Paymob Inquiry fallback)
  */
-export async function getPaymentStatusService(bookingId, userId) {
+export async function getPaymentStatusService(bookingId, userId, transactionId = null) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -301,10 +328,12 @@ export async function getPaymentStatusService(bookingId, userId) {
 
   let latestPayment = booking.payments[0] || null;
 
-  // Fallback check: If payment is pending but has a transaction ID, pull status from Paymob Inquiry API
-  if (latestPayment && latestPayment.status === "pending" && latestPayment.paymobTransactionId) {
+  // Fallback check: If payment is pending, pull status from Paymob Inquiry API using webhook ID or URL transaction ID
+  const activeTxId = latestPayment?.paymobTransactionId || transactionId;
+  
+  if (latestPayment && latestPayment.status === "pending" && activeTxId) {
     try {
-      const inquiryResult = await inquireTransaction(latestPayment.paymobTransactionId);
+      const inquiryResult = await inquireTransaction(activeTxId);
       if (inquiryResult && inquiryResult.success === true) {
         latestPayment = await prisma.payment.update({
           where: { id: latestPayment.id },

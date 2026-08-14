@@ -268,7 +268,7 @@ export function PlayerBookingsPage() {
     "date" | "date_desc" | "price" | "price_desc"
   >("date");
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "confirmed" | "completed" | "cancelled" | "no_show"
+    "all" | "confirmed" | "completed" | "cancelled" | "no_show" | "paid"
   >("all");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
 
@@ -306,7 +306,7 @@ export function PlayerBookingsPage() {
       };
 
       if (debouncedSearch.trim()) params.q = debouncedSearch.trim();
-      if (statusFilter !== "all") {
+      if (statusFilter !== "all" && statusFilter !== "paid") {
         params.status = statusFilter;
       }
 
@@ -555,9 +555,11 @@ export function PlayerBookingsPage() {
     [searchQuery],
   );
 
-  const filteredBookings = bookings;
-  const sortedBookings = bookings;
-  const paginatedBookings = bookings;
+  const filteredBookings = statusFilter === "paid"
+    ? bookings.filter((b) => (b as any).paymentStatus === "paid")
+    : bookings;
+  const sortedBookings = filteredBookings;
+  const paginatedBookings = filteredBookings;
 
   const pageNumbers = useMemo(() => {
     const maxNumbers = 5;
@@ -816,6 +818,9 @@ export function PlayerBookingsPage() {
                     </SelectItem>
                     <SelectItem value="no_show">
                       {language === "ar" ? "لم يحضر" : "Missed booking"}
+                    </SelectItem>
+                    <SelectItem value="paid">
+                      {language === "ar" ? "مدفوع أونلاين" : "Paid Online"}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -1469,9 +1474,29 @@ export function PlayerBookingsPage() {
                         )}
                       </div>
                     </div>
+                    {selectedBooking.paymentStatus === "paid" && (() => {
+                      const policy = (selectedBooking as any).court?.paymentPolicy ?? "full";
+                      const isDeposit = policy === "percentage" || policy === "fixed";
+                      return (
+                        <div className={`w-full rounded-xl py-3 flex flex-col items-center justify-center gap-1 font-semibold border ${isDeposit ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"}`}>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="h-5 w-5" />
+                            {isDeposit
+                              ? (language === "ar" ? "تم دفع العربون" : "Deposited")
+                              : (language === "ar" ? "تم الدفع أونلاين" : "Paid Online")}
+                          </div>
+                          {isDeposit && (
+                            <p className="text-xs font-normal opacity-80 text-center">
+                              {language === "ar" ? "يرجى دفع المبلغ المتبقي عند الملعب" : "Pay the remaining balance up-front at the court"}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {selectedBooking.paymentStatus !== "paid" &&
-                      selectedBooking.status !== "cancelled" && (
+                      selectedBooking.status !== "cancelled" &&
+                      (selectedBooking as any).court?.allowOnlinePayment !== false && (
                         <Button
                           className="w-full rounded-xl gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-md shadow-emerald-500/20 py-3 font-semibold"
                           onClick={() => handlePaymobPayForBooking(selectedBooking.id)}
@@ -1482,11 +1507,27 @@ export function PlayerBookingsPage() {
                           ) : (
                             <Zap className="h-4 w-4" />
                           )}
-                          {language === "ar"
-                            ? "ادفع أونلاين بـ Paymob"
-                            : "Pay Online with Paymob"}
+                          {(() => {
+                            const policy = (selectedBooking as any).court?.paymentPolicy
+                            const depositVal = Number((selectedBooking as any).court?.depositValue ?? 0)
+                            const total = Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0)
+                            if (policy === "percentage" && depositVal > 0) {
+                              const due = Math.round((total * depositVal) / 100)
+                              return language === "ar"
+                                ? `ادفع عربون ${depositVal}% (${due} ج.م)`
+                                : `Pay ${depositVal}% Deposit (${due} EGP)`
+                            }
+                            if (policy === "fixed" && depositVal > 0) {
+                              const due = Math.min(total, depositVal)
+                              return language === "ar"
+                                ? `ادفع عربون ${due} ج.م`
+                                : `Pay Deposit (${due} EGP)`
+                            }
+                            return language === "ar" ? "ادفع أونلاين بـ Paymob" : "Pay Online with Paymob"
+                          })()}
                         </Button>
                       )}
+
 
                     {canChange && (
                       <div className="grid grid-cols-1 gap-2">

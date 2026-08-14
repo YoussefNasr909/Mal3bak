@@ -964,7 +964,7 @@ export type ListBookingsParams = {
   attendance?: BookingAttendanceFilter
   customerType?: BookingCustomerTypeFilter
   bucket?: "upcoming" | "history" | "past" | "current" | "future"
-  paymentStatus?: "pending" | "paid" | "refunded"
+  paymentStatus?: "pending" | "paid" | "failed" | "refunded"
   includeSummary?: boolean
   page?: number
   limit?: number
@@ -1031,7 +1031,7 @@ export interface CreateManualBookingPayload {
   guestName?: string
   guestPhone?: string
   paymentMethod?: string
-  paymentStatus?: "pending" | "paid" | "refunded"
+  paymentStatus?: "pending" | "paid" | "failed" | "refunded"
 }
 
 export interface ManualBookingCustomerLookup {

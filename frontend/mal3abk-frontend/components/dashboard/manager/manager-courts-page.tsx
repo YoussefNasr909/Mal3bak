@@ -160,6 +160,10 @@ interface CourtFormData {
 
 
   status: "active" | "inactive" | "maintenance";
+  // Payment settings (admin-only)
+  allowOnlinePayment: boolean;
+  paymentPolicy: "full" | "percentage" | "fixed";
+  depositValue: number;
 }
 
 // ---------------------------------------------
@@ -649,6 +653,9 @@ export function ManagerCourtsPage() {
     coverImageIndex: 0,
 
     status: "active",
+    allowOnlinePayment: true,
+    paymentPolicy: "full",
+    depositValue: 0,
   });
 
   const hasPeakWindowConflict = useMemo(
@@ -1133,6 +1140,11 @@ export function ManagerCourtsPage() {
       useOpeningDayForOvernightBookings: Boolean(formData.useOpeningDayForOvernightBookings && isOvernightFormHours),
       images: finalImages.length ? finalImages : cover ? [cover] : [],
       status: formData.status,
+      ...(isAdmin ? {
+        allowOnlinePayment: formData.allowOnlinePayment,
+        paymentPolicy: formData.paymentPolicy,
+        depositValue: formData.depositValue,
+      } : {}),
     };
 
     // ONLY include an ID if we are editing an existing court.
@@ -1303,6 +1315,9 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       coverImageIndex: 0,
 
       status: (court as any).status || "active",
+      allowOnlinePayment: (court as any).allowOnlinePayment !== false,
+      paymentPolicy: (court as any).paymentPolicy ?? "full",
+      depositValue: Number((court as any).depositValue ?? 0),
     });
 
     setCurrentStep(1);
@@ -2011,6 +2026,7 @@ const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   : "Prices are per hour. Set off-peak and peak prices based on the court operating hours."}
               </p>
             </div>
+
           </div>
         );
 
