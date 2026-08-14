@@ -427,9 +427,9 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
 /**
  * Refund a Payment (Admin/Manager action with Multi-tenant RBAC protection)
  */
-export async function refundPaymentService(paymentId, currentUser) {
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
+export async function refundPaymentService(paymentIdOrBookingId, currentUser, customAmount = null) {
+  let payment = await prisma.payment.findUnique({
+    where: { id: paymentIdOrBookingId },
     include: {
       booking: {
         include: {
@@ -440,6 +440,26 @@ export async function refundPaymentService(paymentId, currentUser) {
       },
     },
   });
+
+  if (!payment) {
+    // Try finding by bookingId
+    payment = await prisma.payment.findFirst({
+      where: {
+        bookingId: paymentIdOrBookingId,
+        status: "paid",
+      },
+      include: {
+        booking: {
+          include: {
+            court: {
+              select: { id: true, managerId: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
 
   if (!payment) {
     const err = new Error("Payment record not found");
@@ -462,15 +482,19 @@ export async function refundPaymentService(paymentId, currentUser) {
     throw err;
   }
 
+  const refundAmountCents = customAmount
+    ? Math.round(Number(customAmount) * 100)
+    : (payment.amountCents || Math.round(Number(payment.amount) * 100));
+
   // Execute Paymob refund API
   const refundResponse = await refundTransaction({
     transactionId: payment.paymobTransactionId,
-    amountCents: payment.amountCents,
+    amountCents: refundAmountCents,
   });
 
   // Update DB state
   const updatedPayment = await prisma.payment.update({
-    where: { id: paymentId },
+    where: { id: payment.id },
     data: {
       status: "refunded",
       rawCallbackData: refundResponse,

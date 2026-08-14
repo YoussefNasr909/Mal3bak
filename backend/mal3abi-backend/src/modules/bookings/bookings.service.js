@@ -16,6 +16,7 @@ import { isValidPhoneDigits, normalizePhone } from "../../utils/phone.js";
 import { hashPassword } from "../../utils/hash.js";
 import { clearAuthMeStatsCache } from "../auth/auth.service.js";
 import { createNotificationsTx } from "../notifications/notifications.service.js";
+import { refundTransaction } from "../payments/paymob.service.js";
 
 const toDecimal = (v) => new Prisma.Decimal(v);
 const BOOKING_NO_SHOW_SYNC_INTERVAL_MS = Math.max(
@@ -2496,6 +2497,8 @@ export async function updateBookingService(id, payload, currentUser) {
 }
 
 export async function cancelBookingService(id, currentUser, lang = "en") {
+  const isAr = String(lang).toLowerCase() === "ar";
+
   const result = await prisma.$transaction(async (tx) => {
     await lockBookingRow(tx, id);
 
@@ -2504,11 +2507,14 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
     assertBookingAccess(existing, currentUser);
 
     if (existing.status === "cancelled") {
-      return { booking: formatBooking(existing) };
+      return {
+        booking: formatBooking(existing),
+        refundIssued: false,
+        message: isAr ? "الحجز ملغى بالفعل." : "Booking is already cancelled.",
+      };
     }
 
     if (["completed", "no_show"].includes(existing.status)) {
-      const isAr = String(lang).toLowerCase() === "ar";
       const msg = isAr
         ? "لا يمكن إلغاء الحجوزات المكتملة."
         : "Completed bookings cannot be cancelled.";
@@ -2518,7 +2524,6 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
     }
 
     if (hasBookingCheckInMarkers(existing)) {
-      const isAr = String(lang).toLowerCase() === "ar";
       const msg = isAr
         ? "لا يمكن إلغاء الحجز بعد تسجيل الحضور."
         : "Checked-in bookings cannot be cancelled.";
@@ -2527,16 +2532,69 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
       throw err;
     }
 
-    if (currentUser.role === "player") {
-      assertPlayerBookingChangeWindow(existing, lang);
+    // Calculate time until match starts (in hours)
+    const openRef = existing.sessionOpenTime || existing.court?.openTime || "08:00";
+    const useOpeningDay = getBookingOpeningDayMode(existing);
+    const { startMs } = getAbsoluteBookingTimes(
+      existing.date,
+      existing.startTime,
+      existing.endTime,
+      openRef,
+      useOpeningDay,
+    );
+    const msUntilMatch = startMs - Date.now();
+    const hoursUntilMatch = msUntilMatch / (1000 * 60 * 60);
+
+    // If player attempts to cancel less than 2 hours before the match:
+    if (currentUser.role === "player" && msUntilMatch < 2 * 60 * 60 * 1000) {
+      const msg = isAr
+        ? "عذراً، لا يمكن إلغاء الحجز قبل أقل من ساعتين من موعد المباراة!"
+        : "Sorry, cancellations are not allowed less than 2 hours before the match starts!";
+      const err = new Error(msg);
+      err.status = 400;
+      throw err;
     }
+
+    // Determine refund eligibility (24 hours window)
+    let refundIssued = false;
+    let refundAmount = 0;
+
+    const paidPayment = existing.payments?.find(
+      (p) => p.status === "paid" && p.paymobTransactionId
+    );
+
+    if (existing.paymentStatus === "paid" && paidPayment) {
+      if (hoursUntilMatch >= 24) {
+        // >= 24 hours: eligible for automated refund
+        try {
+          const refundRes = await refundTransaction({
+            transactionId: paidPayment.paymobTransactionId,
+            amountCents: paidPayment.amountCents || Math.round(Number(paidPayment.amount) * 100),
+          });
+
+          await tx.payment.update({
+            where: { id: paidPayment.id },
+            data: {
+              status: "refunded",
+              rawCallbackData: refundRes,
+            },
+          });
+
+          refundIssued = true;
+          refundAmount = Number(paidPayment.amount);
+        } catch (refundErr) {
+          console.error(`[Auto-Refund Warning] Failed to issue automated refund for booking ${id}:`, refundErr);
+        }
+      }
+    }
+
+    const newPaymentStatus = refundIssued ? "refunded" : existing.paymentStatus;
 
     const updated = await tx.booking.update({
       where: { id },
       data: {
         status: "cancelled",
-        paymentStatus:
-          existing.paymentStatus === "paid" ? "refunded" : existing.paymentStatus,
+        paymentStatus: newPaymentStatus,
       },
       include: bookingDetailsInclude,
     });
@@ -2548,8 +2606,28 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
       buildBookingCancelledNotifications(updated, currentUser),
     );
 
-    return { booking: formatBooking(updated) };
+    let message = "";
+    if (refundIssued) {
+      message = isAr
+        ? `تم إلغاء الحجز بنجاح واسترداد مبلغ ${refundAmount} ج.م تلقائياً إلى بطاقتك البنكية.`
+        : `Booking cancelled successfully. A refund of ${refundAmount} EGP has been issued to your bank card.`;
+    } else if (existing.paymentStatus === "paid" && hoursUntilMatch < 24) {
+      message = isAr
+        ? "تم إلغاء الحجز. نظراً للإلغاء قبل أقل من 24 ساعة، لا يمكن استرداد العربون وفقاً لسياسة الإلغاء للملعب."
+        : "Booking cancelled. Per venue policy, cancellations within 24 hours are non-refundable.";
+    } else {
+      message = isAr ? "تم إلغاء الحجز بنجاح." : "Booking cancelled successfully.";
+    }
+
+    return {
+      booking: formatBooking(updated),
+      refundIssued,
+      refundAmount,
+      hoursUntilMatch: Math.max(0, Math.round(hoursUntilMatch * 10) / 10),
+      message,
+    };
   });
+
   clearAuthMeStatsCache();
   return result;
 }

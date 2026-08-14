@@ -655,13 +655,21 @@ export function PlayerBookingsPage() {
 
   const handleCancelBooking = async (bookingId: string) => {
     try {
-      await cancelBookingApi(bookingId, { lang: language });
+      const res = await cancelBookingApi(bookingId, { lang: language }) as any;
       await Promise.all([
         loadBookingsFromApi(),
         loadAllBookingsForStats(),
         refreshUser().catch(() => null),
       ]);
-      toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled");
+      if (res?.message) {
+        if (res.refundIssued) {
+          toast.success(res.message, { duration: 6000 });
+        } else {
+          toast.info(res.message, { duration: 5000 });
+        }
+      } else {
+        toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled");
+      }
       setDetailsOpen(false);
     } catch (error: any) {
       toast.error(
@@ -1168,10 +1176,24 @@ export function PlayerBookingsPage() {
                                           ? "إلغاء الحجز"
                                           : "Cancel Booking"}
                                       </AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        {language === "ar"
-                                          ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
-                                          : "Are you sure you want to cancel this booking?"}
+                                      <AlertDialogDescription className="space-y-2 text-start">
+                                        <span>
+                                          {language === "ar"
+                                            ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
+                                            : "Are you sure you want to cancel this booking?"}
+                                        </span>
+                                        {booking.paymentStatus === "paid" && (
+                                          <span className="block mt-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                            <strong className="block font-bold mb-1">
+                                              {language === "ar" ? "ℹ️ سياسة الاسترداد (24 ساعة):" : "ℹ️ 24h Auto-Refund Policy:"}
+                                            </strong>
+                                            <span className="block text-[11px] leading-relaxed opacity-90">
+                                              {language === "ar"
+                                                ? "الإلغاء قبل أكثر من 24 ساعة من المباراة يسترد المبلغ تلقائياً إلى بطاقتك البنكية. الإلغاء قبل أقل من 24 ساعة غير قابل للاسترداد وفقاً لسياسة الملعب."
+                                                : "Cancellations > 24h before match start receive an automatic refund to your card. Cancellations within 24h are non-refundable per venue policy."}
+                                            </span>
+                                          </span>
+                                        )}
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -1584,10 +1606,24 @@ export function PlayerBookingsPage() {
                                 ? "إلغاء الحجز"
                                 : "Cancel Booking"}
                             </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {language === "ar"
-                                ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
-                                : "Are you sure you want to cancel this booking?"}
+                            <AlertDialogDescription className="space-y-2 text-start">
+                              <span>
+                                {language === "ar"
+                                  ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
+                                  : "Are you sure you want to cancel this booking?"}
+                              </span>
+                              {selectedBooking.paymentStatus === "paid" && (
+                                <span className="block mt-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                  <strong className="block font-bold mb-1">
+                                    {language === "ar" ? "ℹ️ سياسة الاسترداد (24 ساعة):" : "ℹ️ 24h Auto-Refund Policy:"}
+                                  </strong>
+                                  <span className="block text-[11px] leading-relaxed opacity-90">
+                                    {language === "ar"
+                                      ? "الإلغاء قبل أكثر من 24 ساعة من المباراة يسترد المبلغ تلقائياً إلى بطاقتك البنكية. الإلغاء قبل أقل من 24 ساعة غير قابل للاسترداد وفقاً لسياسة الملعب."
+                                      : "Cancellations > 24h before match start receive an automatic refund to your card. Cancellations within 24h are non-refundable per venue policy."}
+                                  </span>
+                                </span>
+                              )}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

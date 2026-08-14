@@ -1644,4 +1644,15 @@ export async function createPaymobCheckoutSession(params: {
   })
 }
 
+export async function refundPayment(paymentIdOrBookingId: string, customAmount?: number) {
+  return await apiFetch<{
+    ok: boolean
+    message: string
+    data: any
+  }>(`/payments/refund/${paymentIdOrBookingId}`, {
+    method: "POST",
+    body: JSON.stringify(customAmount ? { amount: customAmount } : {}),
+  })
+}
+
 export { NOTIFICATIONS_REFRESH_EVENT }
