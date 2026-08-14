@@ -3,6 +3,7 @@
 import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, Clock, Calendar, MapPin, ArrowRight, RefreshCw, ShieldCheck } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 interface BookingStatusData {
   booking: {
@@ -41,7 +42,7 @@ function PaymentCompleteContent() {
   const isPaymobPending = searchParams.get("pending") === "true";
   const rawBookingId = searchParams.get("booking_id") || searchParams.get("special_reference") || searchParams.get("merchant_order_id");
   // Strip the timestamp suffix we append to avoid Paymob duplicate order errors (e.g. "uuid_1723641234567" → "uuid")
-  const bookingId = rawBookingId ? rawBookingId.split("_").slice(0, 5).join("-") : null;
+  const bookingId = rawBookingId ? rawBookingId.split("_")[0] : null;
   const id = searchParams.get("id"); // Paymob transaction ID in redirect URL
 
   useEffect(() => {
@@ -52,24 +53,12 @@ function PaymentCompleteContent() {
       }
 
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
         const txIdParam = id ? `?transactionId=${id}` : "";
-        const res = await fetch(`${backendUrl}/api/v1/payments/status/${bookingId}${txIdParam}`, {
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-        });
-
-        if (res.ok) {
-          const json = await res.json();
-          setData(json.data);
-        } else {
-          setError("Could not retrieve booking details.");
-        }
+        const result = await apiFetch<BookingStatusData>(`/payments/status/${bookingId}${txIdParam}`);
+        setData(result);
       } catch (err) {
         console.error("Error fetching payment status:", err);
-        setError("Network error while verifying payment status.");
+        setError("Could not retrieve booking details.");
       } finally {
         setLoading(false);
       }
@@ -186,7 +175,7 @@ function PaymentCompleteContent() {
 
             <div className="pt-4 flex flex-col gap-3">
               <button
-                onClick={() => router.push("/courts")}
+                onClick={() => router.push("/dashboard/player/browse")}
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-800 py-3 px-4 font-semibold text-white hover:bg-slate-700 transition-all border border-slate-700"
               >
                 <span>Try Booking Again</span>

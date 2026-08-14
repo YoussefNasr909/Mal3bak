@@ -671,7 +671,7 @@ function isPeakHour(time, peakStartStr = DEFAULT_PEAK_START_TIME, peakEndStr = D
   return slotMin >= startMin && slotMin < endMin;
 }
 
-function calculateBookingPricing(court, startTime, endTime) {
+export function calculateBookingPricing(court, startTime, endTime) {
   const duration = calculateDurationHours(startTime, endTime, {
     allowFullDayWhenEqual: (court.openTime || "08:00") === (court.closeTime || "23:59"),
   });
@@ -1339,7 +1339,16 @@ export async function ensurePlayerAvailable(
     where: {
       userId,
       date: { in: [prevDate, currDate, nextDate] },
-      status: { in: ["confirmed", "completed", "pending"] },
+      OR: [
+        { status: { in: ["confirmed", "completed"] } },
+        {
+          status: "pending",
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: new Date() } },
+          ],
+        },
+      ],
       ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
     },
     select: {
@@ -1468,7 +1477,16 @@ export async function ensureCourtAvailable(
       where: {
         courtId,
         date: { in: [prevDate, currDate, nextDate] }, // The 3-day window
-        status: { in: ["confirmed", "completed", "pending"] },
+        OR: [
+          { status: { in: ["confirmed", "completed"] } },
+          {
+            status: "pending",
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date() } },
+            ],
+          },
+        ],
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       select: {
@@ -1526,7 +1544,7 @@ export async function ensureCourtAvailable(
   return court;
 }
 
-async function generateUniqueCode(tx = prisma) {
+export async function generateUniqueCode(tx = prisma) {
   for (let i = 0; i < 20; i += 1) {
     const code = crypto.randomBytes(4).toString("hex").toUpperCase(); // Generates 8 alphanumeric characters
     const exists = await tx.booking.findUnique({
@@ -1645,6 +1663,10 @@ export async function createBookingService(payload, currentUser) {
       computedAmount = Math.min(pricing.totalPrice, Number(court.depositValue));
     }
 
+    const requiresDeposit = court.allowOnlinePayment === true && court.paymentPolicy !== "full";
+    const initialStatus = requiresDeposit ? "pending" : "confirmed";
+    const initialExpiresAt = requiresDeposit ? new Date(Date.now() + 15 * 60 * 1000) : null;
+
     const booking = await tx.booking.create({
       data: {
         courtId: court.id,
@@ -1659,11 +1681,12 @@ export async function createBookingService(payload, currentUser) {
         duration: pricing.duration,
         totalPrice: toDecimal(pricing.totalPrice),
         amount: toDecimal(computedAmount),
-        status: "confirmed",
+        status: initialStatus,
         paymentStatus: "pending",
         paymentMethod: null,
         notes: normalizeBookingNotes(payload.notes) ?? null,
         checkInCode,
+        expiresAt: initialExpiresAt,
       },
       include: bookingDetailsInclude,
     });
@@ -3207,3 +3230,28 @@ export async function deleteBookingService(bookingId, currentUser) {
     return { booking: formatBooking(archivedBooking) };
   });
 }
+
+/**
+ * Sweeps expired pending booking holds (Phase 0/1 TTL Worker)
+ */
+export async function expireStaleBookingHoldsService() {
+  try {
+    const now = new Date();
+    const result = await prisma.booking.updateMany({
+      where: {
+        status: "pending",
+        paymentStatus: { not: "paid" },
+        expiresAt: { lt: now },
+      },
+      data: {
+        status: "cancelled",
+        paymentStatus: "failed",
+      },
+    });
+    return result.count;
+  } catch (err) {
+    console.error("Error expiring stale booking holds:", err);
+    return 0;
+  }
+}
+

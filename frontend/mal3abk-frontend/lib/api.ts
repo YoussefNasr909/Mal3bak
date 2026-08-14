@@ -1629,7 +1629,7 @@ export async function createPaymobCheckoutSession(params: {
   startTime?: string
   endTime?: string
   notes?: string
-  paymentMethodType?: "card" | "wallet"
+  paymentMethodType?: "card" | "wallet" | "apple_pay" | "all"
 }) {
   return await apiFetch<{
     bookingId: string

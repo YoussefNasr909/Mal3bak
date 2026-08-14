@@ -7,6 +7,7 @@ const getPaymobHmacSecret = () => process.env.PAYMOB_HMAC_SECRET || "";
 const getPaymobApiKey = () => process.env.PAYMOB_API_KEY || "";
 const getCardIntegrationId = () => Number(process.env.PAYMOB_INTEGRATION_ID_CARD) || 0;
 const getWalletIntegrationId = () => Number(process.env.PAYMOB_INTEGRATION_ID_WALLET) || 0;
+const getUigIntegrationId = () => Number(process.env.PAYMOB_INTEGRATION_ID_UIG) || 0;
 
 /**
  * Creates a Paymob Payment Intention using POST /v1/intention/
@@ -18,7 +19,7 @@ export async function createPaymentIntention({
   specialReference,
   customer,
   items = [],
-  paymentMethodType = "card",
+  paymentMethodType = "all",
   notificationUrl,
   redirectionUrl,
 }) {
@@ -27,15 +28,19 @@ export async function createPaymentIntention({
     throw new Error("PAYMOB_SECRET_KEY is not configured in environment variables");
   }
 
-  const integrationId = paymentMethodType === "wallet" ? getWalletIntegrationId() : getCardIntegrationId();
-  if (!integrationId) {
-    throw new Error(`Paymob integration ID for '${paymentMethodType}' is not configured`);
+  const cardId = getCardIntegrationId() || 5835543;
+  const uigId = getUigIntegrationId() || 5835572;
+
+  // Paymob accepts array of integration IDs; primary integration (cardId) ensures intention validity
+  let paymentMethods = [cardId];
+  if (uigId && uigId !== cardId && !paymentMethods.includes(uigId)) {
+    paymentMethods.push(uigId);
   }
 
   const payload = {
     amount: amountCents,
     currency,
-    payment_methods: [integrationId],
+    payment_methods: paymentMethods,
     items: items.map((item) => ({
       name: item.name || "Court Booking",
       amount: item.amount || amountCents,
@@ -84,7 +89,9 @@ export async function createPaymentIntention({
 
   const data = await response.json();
   const publicKey = getPaymobPublicKey();
-  const checkoutUrl = `https://eg.checkout.paymob.com/?publicKey=${publicKey}&clientSecret=${data.client_secret}`;
+  // Use Paymob's Unified Checkout URL (shows all enabled payment methods: cards, wallets, etc.)
+  const baseUrl = getPaymobBaseUrl(); // https://accept.paymob.com
+  const checkoutUrl = `${baseUrl}/unifiedcheckout/?publicKey=${publicKey}&clientSecret=${data.client_secret}`;
 
   return {
     id: data.id,

@@ -317,6 +317,7 @@ model Booking {
   checkedIn                         Boolean       @default(false)
   checkedInAt                       DateTime?
   notes                             String?
+  expiresAt                         DateTime?
   createdAt                         DateTime      @default(now())
   updatedAt                         DateTime      @updatedAt
 
@@ -329,6 +330,7 @@ model Booking {
   @@index([userId, date])
   @@index([userId, status, date])
   @@index([status, paymentStatus])
+  @@index([status, expiresAt])
   @@index([createdAt])
   @@index([amount])
 }

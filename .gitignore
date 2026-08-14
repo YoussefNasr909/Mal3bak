@@ -1,34 +1,41 @@
 # Dependencies
 node_modules/
+.npm-cache/
 
 # Environment files
 .env
 .env.local
 .env.*.local
+.env.test
 
 # Next.js
 .next/
 out/
 
-# Build
+# Build & Coverage
 dist/
 build/
+coverage/
 
 # TypeScript
 *.tsbuildinfo
 
-# IDE
+# IDE & Editor
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Debug
+# Debug & Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.tmp*
 
 # Playwright
 /test-results/
@@ -40,4 +47,20 @@ yarn-error.log*
 Paymob-AI-Integration-Skill-main/
 Paymob-AI-Integration-Skill-main.zip
 Paymob Documentation.pdf
+
+# Temporary data dumps & scratch
+*.bak
+*-backup-*.json
+
+# AI Agent configs, MCP & references
+.agents/
+.mcp.json
+llms.txt
+
+# Audit and prompt reference docs
+PAYMOB_INTEGRATION_AUDIT.md
+paymob_integration*.md
+universal-prompt.md
+universal_prompt*.md
+SESSION_BRIEF*.md
 

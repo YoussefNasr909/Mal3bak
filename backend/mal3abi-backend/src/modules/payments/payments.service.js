@@ -5,6 +5,11 @@ import {
   refundTransaction,
   inquireTransaction,
 } from "./paymob.service.js";
+import {
+  ensureCourtAvailable,
+  calculateBookingPricing,
+  generateUniqueCode,
+} from "../bookings/bookings.service.js";
 
 /**
  * Creates a checkout session for court booking via Paymob.
@@ -31,9 +36,9 @@ export async function createCheckoutSessionService({
   }
 
   let booking;
-  let amountCents;
-  let amount;
   let court;
+  let amount = 0;
+  let amountCents = 0;
   let bookingDate = date;
   let bookingStartTime = startTime;
   let bookingEndTime = endTime;
@@ -71,55 +76,58 @@ export async function createCheckoutSessionService({
     bookingStartTime = booking.startTime;
     bookingEndTime = booking.endTime;
   } else {
-    court = await prisma.court.findUnique({
-      where: { id: courtId },
+    // Validate availability and create hold atomically in a transaction
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15-minute reservation hold
+
+    const txResult = await prisma.$transaction(async (tx) => {
+      const c = await ensureCourtAvailable(courtId, date, startTime, endTime, null, tx);
+
+      // Guard: court must allow online payments
+      if (c.allowOnlinePayment === false) {
+        const err = new Error("This court does not accept online payments.");
+        err.status = 403;
+        throw err;
+      }
+
+      const pricing = calculateBookingPricing(c, startTime, endTime);
+      let computedAmount = pricing.totalPrice;
+      if (c.paymentPolicy === "percentage") {
+        computedAmount = (pricing.totalPrice * Number(c.depositValue || 0)) / 100;
+      } else if (c.paymentPolicy === "fixed") {
+        computedAmount = Math.min(pricing.totalPrice, Number(c.depositValue || 0));
+      }
+
+      const checkInCode = await generateUniqueCode(tx);
+
+      const b = await tx.booking.create({
+        data: {
+          courtId: c.id,
+          userId: user.id,
+          date,
+          startTime,
+          endTime,
+          sessionOpenTime: c.openTime || "08:00",
+          sessionCloseTime: c.closeTime || "23:59",
+          useOpeningDayForOvernightBookings: c.useOpeningDayForOvernightBookings || false,
+          duration: pricing.duration * 60,
+          totalPrice: pricing.totalPrice,
+          amount: computedAmount,
+          status: "pending",
+          paymentStatus: "pending",
+          paymentMethod: paymentMethodType,
+          checkInCode,
+          expiresAt,
+          notes: notes || "Paymob Online Booking",
+        },
+      });
+
+      return { court: c, booking: b, computedAmount };
     });
 
-    if (!court || court.status !== "active") {
-      const err = new Error("Court not found or inactive");
-      err.status = 404;
-      throw err;
-    }
-
-    // Guard: court must allow online payments
-    if (court.allowOnlinePayment === false) {
-      const err = new Error("This court does not accept online payments.");
-      err.status = 403;
-      throw err;
-    }
-
-    const startHour = parseInt(startTime.split(":")[0], 10);
-    const endHour = parseInt(endTime.split(":")[0], 10);
-    let durationHours = endHour - startHour;
-    if (durationHours <= 0) durationHours += 24;
-
-    const pricePerHour = Number(court.peakPrice) || 100;
-    const totalPrice = durationHours * pricePerHour;
-    amount = totalPrice;
-    amountCents = Math.round(totalPrice * 100);
-
-    const checkInCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    booking = await prisma.booking.create({
-      data: {
-        courtId: court.id,
-        userId: user.id,
-        date,
-        startTime,
-        endTime,
-        sessionOpenTime: court.openTime || "08:00",
-        sessionCloseTime: court.closeTime || "23:59",
-        useOpeningDayForOvernightBookings: court.useOpeningDayForOvernightBookings || false,
-        duration: durationHours * 60,
-        totalPrice,
-        amount: totalPrice,
-        status: "pending",
-        paymentStatus: "pending",
-        paymentMethod: paymentMethodType,
-        checkInCode,
-        notes: notes || "Paymob Booking",
-      },
-    });
+    court = txResult.court;
+    booking = txResult.booking;
+    amount = txResult.computedAmount;
+    amountCents = Math.round(txResult.computedAmount * 100);
   }
 
   // Prepare names
@@ -219,6 +227,28 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
       },
     });
 
+    // Branch A: Portal Refund Webhook
+    if (obj.is_refunded === true) {
+      if (payment) {
+        payment = await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: "refunded",
+            rawCallbackData: obj,
+          },
+        });
+        await tx.booking.update({
+          where: { id: payment.bookingId },
+          data: {
+            status: "cancelled",
+            paymentStatus: "refunded",
+          },
+        });
+      }
+      return { duplicate: false, payment };
+    }
+
+    // Branch B: Successful Payment
     if (isPaidSuccess) {
       if (payment) {
         payment = await tx.payment.update({
@@ -239,6 +269,7 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
             status: "confirmed",
             paymentStatus: "paid",
             paymentMethod: obj.source_data?.sub_type || "paymob",
+            expiresAt: null, // Clear hold TTL upon confirmation
           },
         });
       } else if (specialReference) {
@@ -266,12 +297,13 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
               status: "confirmed",
               paymentStatus: "paid",
               paymentMethod: obj.source_data?.sub_type || "paymob",
+              expiresAt: null,
             },
           });
         }
       }
     } else {
-      // Payment Failed or Pending
+      // Branch C: Payment Failed or Pending (Allow retry while hold is active)
       if (payment) {
         const newStatus = obj.error_occured ? "failed" : "pending";
         payment = await tx.payment.update({
@@ -284,8 +316,14 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
           },
         });
 
-        // Cancel booking if transaction explicitly failed
-        if (obj.error_occured) {
+        // If hold TTL has passed or explicit fatal error, cancel booking
+        const parentBooking = await tx.booking.findUnique({
+          where: { id: payment.bookingId },
+          select: { expiresAt: true },
+        });
+
+        const isHoldExpired = parentBooking?.expiresAt && parentBooking.expiresAt < new Date();
+        if (isHoldExpired) {
           await tx.booking.update({
             where: { id: payment.bookingId },
             data: {
@@ -304,9 +342,9 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
 }
 
 /**
- * Get payment status for a booking (with active Paymob Inquiry fallback)
+ * Get payment status for a booking (with IDOR protection & active Paymob Inquiry fallback)
  */
-export async function getPaymentStatusService(bookingId, userId, transactionId = null) {
+export async function getPaymentStatusService(bookingId, currentUser, transactionId = null) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
@@ -315,7 +353,17 @@ export async function getPaymentStatusService(bookingId, userId, transactionId =
         take: 1,
       },
       court: {
-        select: { id: true, name: true, nameEn: true, images: true, address: true },
+        select: {
+          id: true,
+          managerId: true,
+          name: true,
+          nameEn: true,
+          images: true,
+          address: true,
+          paymentPolicy: true,
+          depositValue: true,
+          allowOnlinePayment: true,
+        },
       },
     },
   });
@@ -323,6 +371,19 @@ export async function getPaymentStatusService(bookingId, userId, transactionId =
   if (!booking) {
     const err = new Error("Booking not found");
     err.status = 404;
+    throw err;
+  }
+
+  // IDOR Protection: User must own the booking, manage the court, or be admin
+  const currentUserId = typeof currentUser === "object" ? currentUser.id : currentUser;
+  const currentUserRole = typeof currentUser === "object" ? currentUser.role : null;
+  const isOwner = booking.userId === currentUserId;
+  const isAdmin = currentUserRole === "admin";
+  const isManager = currentUserRole === "manager" && booking.court?.managerId === currentUserId;
+
+  if (!isOwner && !isAdmin && !isManager && currentUserRole !== null) {
+    const err = new Error("You are not authorized to view this booking's payment status.");
+    err.status = 403;
     throw err;
   }
 
@@ -337,7 +398,11 @@ export async function getPaymentStatusService(bookingId, userId, transactionId =
       if (inquiryResult && inquiryResult.success === true) {
         latestPayment = await prisma.payment.update({
           where: { id: latestPayment.id },
-          data: { status: "paid" },
+          data: {
+            status: "paid",
+            paymobTransactionId: String(activeTxId),
+            rawCallbackData: inquiryResult,
+          },
         });
 
         await prisma.booking.update({
@@ -360,17 +425,34 @@ export async function getPaymentStatusService(bookingId, userId, transactionId =
 }
 
 /**
- * Refund a Payment (Admin/Manager action)
+ * Refund a Payment (Admin/Manager action with Multi-tenant RBAC protection)
  */
 export async function refundPaymentService(paymentId, currentUser) {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
-    include: { booking: true },
+    include: {
+      booking: {
+        include: {
+          court: {
+            select: { id: true, managerId: true },
+          },
+        },
+      },
+    },
   });
 
   if (!payment) {
     const err = new Error("Payment record not found");
     err.status = 404;
+    throw err;
+  }
+
+  // Multi-tenant RBAC: Manager must own the court, or caller must be admin
+  const isAdmin = currentUser.role === "admin";
+  const isCourtManager = currentUser.role === "manager" && payment.booking?.court?.managerId === currentUser.id;
+  if (!isAdmin && !isCourtManager) {
+    const err = new Error("You are not authorized to issue a refund for this court's bookings.");
+    err.status = 403;
     throw err;
   }
 
