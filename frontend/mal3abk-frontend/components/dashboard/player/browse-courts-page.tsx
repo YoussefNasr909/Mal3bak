@@ -27,6 +27,8 @@ import {
   Car,
   Coffee,
   Shield,
+  CreditCard,
+  Smartphone,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -48,7 +50,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useLanguage } from "@/components/providers/language-provider"
 import { useAuth } from "@/components/providers/auth-provider"
 import { sportTypes, cities } from "@/lib/constants"
-import { listPublicCourts, getPublicCourtAvailability, createBooking, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
+import { listPublicCourts, getPublicCourtAvailability, createBooking, createPaymobCheckoutSession, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
 import type { Court } from "@/lib/types"
 import { timeToMinutes, minutesToTime, format12h, formatOperatingHours, checkNextDay, isPeakHour } from "@/lib/time"
 import { getBookableStartDateForCourt, getBookingDateForCourtSlot, getCalendarDayDiffFromEgyptToday, getEgyptDateSequence } from "@/lib/date"
@@ -378,6 +380,7 @@ export function BrowseCourtsPage() {
   const [selectedTime, setSelectedTime] = useState("")
   const [selectionResetNotice, setSelectionResetNotice] = useState("")
   const [bookingNote, setBookingNote] = useState("")
+  const [paymentMethodType, setPaymentMethodType] = useState<"all" | "card" | "wallet" | "apple_pay">("all")
   const [durationHours, setDurationHours] = useState<1 | 2 | 3>(1)
   const [timeFilter, setTimeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all")
   const bookingScrollRef = useRef<HTMLDivElement | null>(null)
@@ -866,6 +869,48 @@ export function BrowseCourtsPage() {
       toast.error(error?.message || (language === "ar" ? "تعذر إنشاء الحجز" : "Could not create booking"))
     } finally {
       setIsSubmitting(false); // ✅ Reset loading state
+    }
+  }
+
+  const handlePaymobPay = async () => {
+    if (!selectedCourt) return
+    if (!selectedDate || !selectedTime) {
+      toast.error(language === "ar" ? "يرجى اختيار التاريخ والوقت" : "Please select date and time")
+      return
+    }
+
+    if (!selectionAvailability.ok) {
+      toast.error(selectionAvailability.message || (language === "ar" ? "الموعد غير متاح" : "Slot not available"))
+      return
+    }
+
+    if (!user?.id) {
+      toast.error(language === "ar" ? "يرجى تسجيل الدخول" : "Please log in")
+      router.push("/auth/login")
+      return
+    }
+
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
+    try {
+      const selectedSlot = apiSlots.find((slot) => slot.start === selectedTime)
+      const bookingDate = selectedSlot?.date || getBookingDateForCourtSlot(selectedDate, selectedTime, selectedCourt)
+      
+      const sessionData = await createPaymobCheckoutSession({
+        courtId: selectedCourt.id,
+        date: bookingDate,
+        startTime: selectedTime,
+        endTime: selectedEndTime,
+        notes: toBookingNotePayload(bookingNote) ?? undefined,
+        paymentMethodType,
+      })
+
+      toast.loading(language === "ar" ? "جاري التحويل لصفحة باي موب..." : "Redirecting to Paymob...")
+      window.location.href = sessionData.checkoutUrl
+    } catch (e: any) {
+      toast.error(e?.message || (language === "ar" ? "فشل بدء عملية الدفع عبر باي موب" : "Paymob payment initiation failed"))
+      setIsSubmitting(false)
     }
   }
 
@@ -1550,6 +1595,67 @@ export function BrowseCourtsPage() {
                 )}
               </div>
 
+              {/* Payment Method Selector */}
+              {selectedCourt?.allowOnlinePayment !== false && (
+                <div className="space-y-2.5 rounded-2xl bg-muted/30 border border-border/70 p-3.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-primary" />
+                      {language === "ar" ? "اختر وسيلة الدفع أونلاين" : "Select Payment Method"}
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
+                      Paymob Egypt
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethodType("card")}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                        paymentMethodType === "card"
+                          ? "bg-primary/15 border-primary text-primary shadow-sm ring-2 ring-primary"
+                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                      )}
+                    >
+                      <CreditCard className="h-5 w-5 mb-1 text-primary" />
+                      <span className="text-xs font-extrabold">{language === "ar" ? "بطاقة بنكية" : "Bank Card"}</span>
+                      <span className="text-[9px] opacity-70">Visa / Master</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethodType("wallet")}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                        paymentMethodType === "wallet"
+                          ? "bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-sm ring-2 ring-emerald-500"
+                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                      )}
+                    >
+                      <Smartphone className="h-5 w-5 mb-1 text-emerald-500" />
+                      <span className="text-xs font-extrabold">{language === "ar" ? "محفظة كاش" : "Wallet"}</span>
+                      <span className="text-[9px] opacity-70">Vodafone / Cash</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethodType("apple_pay")}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                        paymentMethodType === "apple_pay"
+                          ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 shadow-sm ring-2 ring-amber-500"
+                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                      )}
+                    >
+                      <Zap className="h-5 w-5 mb-1 text-amber-500" />
+                      <span className="text-xs font-extrabold">Apple Pay</span>
+                      <span className="text-[9px] opacity-70">{language === "ar" ? "أبل باي" : "Apple Pay"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Note to venue */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1585,15 +1691,33 @@ export function BrowseCourtsPage() {
             </div>
           )}
 
-          <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:gap-3 sm:px-6 sm:pb-6 sm:pt-4 sm:space-x-0">
-            <Button variant="ghost" className="rounded-2xl flex-1 h-14 sm:h-12 text-muted-foreground hover:text-foreground" onClick={() => setBookingDialogOpen(false)}>
+          <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:gap-3 sm:px-6 sm:pb-6 sm:pt-4 flex-col sm:flex-row">
+            <Button variant="outline" className="rounded-2xl bg-transparent" onClick={() => setBookingDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button className="rounded-2xl flex-1 h-14 sm:h-12 gap-2 text-base font-bold shadow-lg shadow-primary/20" onClick={handleConfirmBooking} disabled={!canConfirm || isSubmitting}>
-              {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-              {isSubmitting
-                ? (language === "ar" ? "جاري الحجز..." : "Booking...")
-                : (language === "ar" ? "تأكيد الحجز" : "Confirm Booking")}
+            
+            <Button
+              className="rounded-2xl flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all duration-200"
+              onClick={handlePaymobPay}
+              disabled={!canConfirm || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              {(() => {
+                if (paymentMethodType === "wallet") return language === "ar" ? "ادفع بالمحفظة الإلكترونية" : "Pay with Mobile Wallet";
+                if (paymentMethodType === "apple_pay") return language === "ar" ? "ادفع بـ Apple Pay" : "Pay with Apple Pay";
+                if (paymentMethodType === "card") return language === "ar" ? "ادفع بالبطاقة البنكية" : "Pay with Bank Card";
+                return language === "ar" ? "ادفع أونلاين بـ Paymob" : "Pay Online with Paymob";
+              })()}
+            </Button>
+
+            <Button
+              variant="secondary"
+              className="rounded-2xl gap-2 transition-all duration-200"
+              onClick={handleConfirmBooking}
+              disabled={!canConfirm || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {language === "ar" ? "حجز بدون دفع" : "Book (Pay Later)"}
             </Button>
           </DialogFooter>
         </DialogContent>

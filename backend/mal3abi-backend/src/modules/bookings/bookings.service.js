@@ -16,6 +16,7 @@ import { isValidPhoneDigits, normalizePhone } from "../../utils/phone.js";
 import { hashPassword } from "../../utils/hash.js";
 import { clearAuthMeStatsCache } from "../auth/auth.service.js";
 import { createNotificationsTx } from "../notifications/notifications.service.js";
+import { refundTransaction } from "../payments/paymob.service.js";
 
 const toDecimal = (v) => new Prisma.Decimal(v);
 const BOOKING_NO_SHOW_SYNC_INTERVAL_MS = Math.max(
@@ -191,14 +192,32 @@ const bookingUserSelect = {
   avatar: true,
 };
 
+const bookingPaymentSelect = {
+  id: true,
+  amount: true,
+  currency: true,
+  status: true,
+  paymentMethod: true,
+  paymobTransactionId: true,
+  createdAt: true,
+};
+
 const bookingDetailsInclude = {
   court: { select: bookingCourtSelect },
   user: { select: bookingUserSelect },
+  payments: {
+    select: bookingPaymentSelect,
+    orderBy: { createdAt: "desc" },
+  },
 };
 
 const bookingListInclude = {
   court: { select: bookingCourtSelect },
   user: { select: bookingUserSelect },
+  payments: {
+    select: bookingPaymentSelect,
+    orderBy: { createdAt: "desc" },
+  },
 };
 
 const IN_MEMORY_BOOKINGS_BATCH_SIZE = 200;
@@ -671,7 +690,7 @@ function isPeakHour(time, peakStartStr = DEFAULT_PEAK_START_TIME, peakEndStr = D
   return slotMin >= startMin && slotMin < endMin;
 }
 
-function calculateBookingPricing(court, startTime, endTime) {
+export function calculateBookingPricing(court, startTime, endTime) {
   const duration = calculateDurationHours(startTime, endTime, {
     allowFullDayWhenEqual: (court.openTime || "08:00") === (court.closeTime || "23:59"),
   });
@@ -1084,6 +1103,29 @@ function formatBooking(b) {
     checkInWindowOpenTime: fmt(openD),
     checkInWindowCloseTime: fmt(closeD),
     useOpeningDayForOvernightBookings: useOpeningDay,
+    payments: Array.isArray(b.payments)
+      ? b.payments.map((p) => ({
+          id: p.id,
+          amount: Number(p.amount),
+          currency: p.currency || "EGP",
+          status: p.status,
+          paymentMethod: p.paymentMethod || "card",
+          paymobTransactionId: p.paymobTransactionId || null,
+          createdAt: p.createdAt,
+        }))
+      : [],
+    latestPayment:
+      Array.isArray(b.payments) && b.payments.length > 0
+        ? {
+            id: b.payments[0].id,
+            amount: Number(b.payments[0].amount),
+            currency: b.payments[0].currency || "EGP",
+            status: b.payments[0].status,
+            paymentMethod: b.payments[0].paymentMethod || "card",
+            paymobTransactionId: b.payments[0].paymobTransactionId || null,
+            createdAt: b.payments[0].createdAt,
+          }
+        : null,
     court: b.court ? {
       allowOnlinePayment: b.court.allowOnlinePayment !== false,
       paymentPolicy: b.court.paymentPolicy || "full",
@@ -1339,7 +1381,16 @@ export async function ensurePlayerAvailable(
     where: {
       userId,
       date: { in: [prevDate, currDate, nextDate] },
-      status: { in: ["confirmed", "completed", "pending"] },
+      OR: [
+        { status: { in: ["confirmed", "completed"] } },
+        {
+          status: "pending",
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: new Date() } },
+          ],
+        },
+      ],
       ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
     },
     select: {
@@ -1468,7 +1519,16 @@ export async function ensureCourtAvailable(
       where: {
         courtId,
         date: { in: [prevDate, currDate, nextDate] }, // The 3-day window
-        status: { in: ["confirmed", "completed", "pending"] },
+        OR: [
+          { status: { in: ["confirmed", "completed"] } },
+          {
+            status: "pending",
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date() } },
+            ],
+          },
+        ],
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
       },
       select: {
@@ -1526,7 +1586,7 @@ export async function ensureCourtAvailable(
   return court;
 }
 
-async function generateUniqueCode(tx = prisma) {
+export async function generateUniqueCode(tx = prisma) {
   for (let i = 0; i < 20; i += 1) {
     const code = crypto.randomBytes(4).toString("hex").toUpperCase(); // Generates 8 alphanumeric characters
     const exists = await tx.booking.findUnique({
@@ -1645,6 +1705,10 @@ export async function createBookingService(payload, currentUser) {
       computedAmount = Math.min(pricing.totalPrice, Number(court.depositValue));
     }
 
+    const requiresDeposit = court.allowOnlinePayment === true && court.paymentPolicy !== "full";
+    const initialStatus = requiresDeposit ? "pending" : "confirmed";
+    const initialExpiresAt = requiresDeposit ? new Date(Date.now() + 15 * 60 * 1000) : null;
+
     const booking = await tx.booking.create({
       data: {
         courtId: court.id,
@@ -1659,11 +1723,12 @@ export async function createBookingService(payload, currentUser) {
         duration: pricing.duration,
         totalPrice: toDecimal(pricing.totalPrice),
         amount: toDecimal(computedAmount),
-        status: "confirmed",
+        status: initialStatus,
         paymentStatus: "pending",
         paymentMethod: null,
         notes: normalizeBookingNotes(payload.notes) ?? null,
         checkInCode,
+        expiresAt: initialExpiresAt,
       },
       include: bookingDetailsInclude,
     });
@@ -2432,6 +2497,8 @@ export async function updateBookingService(id, payload, currentUser) {
 }
 
 export async function cancelBookingService(id, currentUser, lang = "en") {
+  const isAr = String(lang).toLowerCase() === "ar";
+
   const result = await prisma.$transaction(async (tx) => {
     await lockBookingRow(tx, id);
 
@@ -2440,11 +2507,14 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
     assertBookingAccess(existing, currentUser);
 
     if (existing.status === "cancelled") {
-      return { booking: formatBooking(existing) };
+      return {
+        booking: formatBooking(existing),
+        refundIssued: false,
+        message: isAr ? "الحجز ملغى بالفعل." : "Booking is already cancelled.",
+      };
     }
 
     if (["completed", "no_show"].includes(existing.status)) {
-      const isAr = String(lang).toLowerCase() === "ar";
       const msg = isAr
         ? "لا يمكن إلغاء الحجوزات المكتملة."
         : "Completed bookings cannot be cancelled.";
@@ -2454,7 +2524,6 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
     }
 
     if (hasBookingCheckInMarkers(existing)) {
-      const isAr = String(lang).toLowerCase() === "ar";
       const msg = isAr
         ? "لا يمكن إلغاء الحجز بعد تسجيل الحضور."
         : "Checked-in bookings cannot be cancelled.";
@@ -2463,16 +2532,69 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
       throw err;
     }
 
-    if (currentUser.role === "player") {
-      assertPlayerBookingChangeWindow(existing, lang);
+    // Calculate time until match starts (in hours)
+    const openRef = existing.sessionOpenTime || existing.court?.openTime || "08:00";
+    const useOpeningDay = getBookingOpeningDayMode(existing);
+    const { startMs } = getAbsoluteBookingTimes(
+      existing.date,
+      existing.startTime,
+      existing.endTime,
+      openRef,
+      useOpeningDay,
+    );
+    const msUntilMatch = startMs - Date.now();
+    const hoursUntilMatch = msUntilMatch / (1000 * 60 * 60);
+
+    // If player attempts to cancel less than 2 hours before the match:
+    if (currentUser.role === "player" && msUntilMatch < 2 * 60 * 60 * 1000) {
+      const msg = isAr
+        ? "عذراً، لا يمكن إلغاء الحجز قبل أقل من ساعتين من موعد المباراة!"
+        : "Sorry, cancellations are not allowed less than 2 hours before the match starts!";
+      const err = new Error(msg);
+      err.status = 400;
+      throw err;
     }
+
+    // Determine refund eligibility (24 hours window)
+    let refundIssued = false;
+    let refundAmount = 0;
+
+    const paidPayment = existing.payments?.find(
+      (p) => p.status === "paid" && p.paymobTransactionId
+    );
+
+    if (existing.paymentStatus === "paid" && paidPayment) {
+      if (hoursUntilMatch >= 24) {
+        // >= 24 hours: eligible for automated refund
+        try {
+          const refundRes = await refundTransaction({
+            transactionId: paidPayment.paymobTransactionId,
+            amountCents: paidPayment.amountCents || Math.round(Number(paidPayment.amount) * 100),
+          });
+
+          await tx.payment.update({
+            where: { id: paidPayment.id },
+            data: {
+              status: "refunded",
+              rawCallbackData: refundRes,
+            },
+          });
+
+          refundIssued = true;
+          refundAmount = Number(paidPayment.amount);
+        } catch (refundErr) {
+          console.error(`[Auto-Refund Warning] Failed to issue automated refund for booking ${id}:`, refundErr);
+        }
+      }
+    }
+
+    const newPaymentStatus = refundIssued ? "refunded" : existing.paymentStatus;
 
     const updated = await tx.booking.update({
       where: { id },
       data: {
         status: "cancelled",
-        paymentStatus:
-          existing.paymentStatus === "paid" ? "refunded" : existing.paymentStatus,
+        paymentStatus: newPaymentStatus,
       },
       include: bookingDetailsInclude,
     });
@@ -2484,8 +2606,28 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
       buildBookingCancelledNotifications(updated, currentUser),
     );
 
-    return { booking: formatBooking(updated) };
+    let message = "";
+    if (refundIssued) {
+      message = isAr
+        ? `تم إلغاء الحجز بنجاح واسترداد مبلغ ${refundAmount} ج.م تلقائياً إلى بطاقتك البنكية.`
+        : `Booking cancelled successfully. A refund of ${refundAmount} EGP has been issued to your bank card.`;
+    } else if (existing.paymentStatus === "paid" && hoursUntilMatch < 24) {
+      message = isAr
+        ? "تم إلغاء الحجز. نظراً للإلغاء قبل أقل من 24 ساعة، لا يمكن استرداد العربون وفقاً لسياسة الإلغاء للملعب."
+        : "Booking cancelled. Per venue policy, cancellations within 24 hours are non-refundable.";
+    } else {
+      message = isAr ? "تم إلغاء الحجز بنجاح." : "Booking cancelled successfully.";
+    }
+
+    return {
+      booking: formatBooking(updated),
+      refundIssued,
+      refundAmount,
+      hoursUntilMatch: Math.max(0, Math.round(hoursUntilMatch * 10) / 10),
+      message,
+    };
   });
+
   clearAuthMeStatsCache();
   return result;
 }
@@ -3207,3 +3349,28 @@ export async function deleteBookingService(bookingId, currentUser) {
     return { booking: formatBooking(archivedBooking) };
   });
 }
+
+/**
+ * Sweeps expired pending booking holds (Phase 0/1 TTL Worker)
+ */
+export async function expireStaleBookingHoldsService() {
+  try {
+    const now = new Date();
+    const result = await prisma.booking.updateMany({
+      where: {
+        status: "pending",
+        paymentStatus: { not: "paid" },
+        expiresAt: { lt: now },
+      },
+      data: {
+        status: "cancelled",
+        paymentStatus: "failed",
+      },
+    });
+    return result.count;
+  } catch (err) {
+    console.error("Error expiring stale booking holds:", err);
+    return 0;
+  }
+}
+

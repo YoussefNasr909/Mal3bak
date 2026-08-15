@@ -1629,7 +1629,7 @@ export async function createPaymobCheckoutSession(params: {
   startTime?: string
   endTime?: string
   notes?: string
-  paymentMethodType?: "card" | "wallet"
+  paymentMethodType?: "card" | "wallet" | "apple_pay" | "all"
 }) {
   return await apiFetch<{
     bookingId: string
@@ -1641,6 +1641,17 @@ export async function createPaymobCheckoutSession(params: {
   }>(`/payments/create-checkout-session`, {
     method: "POST",
     body: JSON.stringify(params),
+  })
+}
+
+export async function refundPayment(paymentIdOrBookingId: string, customAmount?: number) {
+  return await apiFetch<{
+    ok: boolean
+    message: string
+    data: any
+  }>(`/payments/refund/${paymentIdOrBookingId}`, {
+    method: "POST",
+    body: JSON.stringify(customAmount ? { amount: customAmount } : {}),
   })
 }
 

@@ -24,8 +24,10 @@ import {
   QrCode,
   Zap,
   Loader2,
+  Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PaymentReceiptModal } from "@/components/dashboard/player/payment-receipt-modal";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -275,6 +277,8 @@ export function PlayerBookingsPage() {
   // dialogs
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptBooking, setReceiptBooking] = useState<BookingWithCode | null>(null);
 
   const [selectedBooking, setSelectedBooking] =
     useState<BookingWithCode | null>(null);
@@ -651,13 +655,21 @@ export function PlayerBookingsPage() {
 
   const handleCancelBooking = async (bookingId: string) => {
     try {
-      await cancelBookingApi(bookingId, { lang: language });
+      const res = await cancelBookingApi(bookingId, { lang: language }) as any;
       await Promise.all([
         loadBookingsFromApi(),
         loadAllBookingsForStats(),
         refreshUser().catch(() => null),
       ]);
-      toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled");
+      if (res?.message) {
+        if (res.refundIssued) {
+          toast.success(res.message, { duration: 6000 });
+        } else {
+          toast.info(res.message, { duration: 5000 });
+        }
+      } else {
+        toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled");
+      }
       setDetailsOpen(false);
     } catch (error: any) {
       toast.error(
@@ -1128,6 +1140,22 @@ export function PlayerBookingsPage() {
                                     {language === "ar" ? "الكود" : "Code"}
                                   </Button>
                                 )}
+
+                              {booking.paymentStatus === "paid" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-xl gap-1.5 flex-1 sm:flex-none border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 font-semibold shadow-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReceiptBooking(booking);
+                                    setReceiptModalOpen(true);
+                                  }}
+                                >
+                                  <Receipt className="h-4 w-4 text-emerald-500" />
+                                  {language === "ar" ? "الإيصال" : "Receipt"}
+                                </Button>
+                              )}
                               {canCancelListItem && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
@@ -1148,10 +1176,24 @@ export function PlayerBookingsPage() {
                                           ? "إلغاء الحجز"
                                           : "Cancel Booking"}
                                       </AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        {language === "ar"
-                                          ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
-                                          : "Are you sure you want to cancel this booking?"}
+                                      <AlertDialogDescription className="space-y-2 text-start">
+                                        <span>
+                                          {language === "ar"
+                                            ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
+                                            : "Are you sure you want to cancel this booking?"}
+                                        </span>
+                                        {booking.paymentStatus === "paid" && (
+                                          <span className="block mt-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                            <strong className="block font-bold mb-1">
+                                              {language === "ar" ? "ℹ️ سياسة الاسترداد (24 ساعة):" : "ℹ️ 24h Auto-Refund Policy:"}
+                                            </strong>
+                                            <span className="block text-[11px] leading-relaxed opacity-90">
+                                              {language === "ar"
+                                                ? "الإلغاء قبل أكثر من 24 ساعة من المباراة يسترد المبلغ تلقائياً إلى بطاقتك البنكية. الإلغاء قبل أقل من 24 ساعة غير قابل للاسترداد وفقاً لسياسة الملعب."
+                                                : "Cancellations > 24h before match start receive an automatic refund to your card. Cancellations within 24h are non-refundable per venue policy."}
+                                            </span>
+                                          </span>
+                                        )}
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -1478,18 +1520,33 @@ export function PlayerBookingsPage() {
                       const policy = (selectedBooking as any).court?.paymentPolicy ?? "full";
                       const isDeposit = policy === "percentage" || policy === "fixed";
                       return (
-                        <div className={`w-full rounded-xl py-3 flex flex-col items-center justify-center gap-1 font-semibold border ${isDeposit ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"}`}>
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 className="h-5 w-5" />
-                            {isDeposit
-                              ? (language === "ar" ? "تم دفع العربون" : "Deposited")
-                              : (language === "ar" ? "تم الدفع أونلاين" : "Paid Online")}
+                        <div className="space-y-2 w-full">
+                          <div className={`w-full rounded-xl py-3 flex flex-col items-center justify-center gap-1 font-semibold border ${isDeposit ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"}`}>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="h-5 w-5" />
+                              {isDeposit
+                                ? (language === "ar" ? "تم دفع العربون" : "Deposited")
+                                : (language === "ar" ? "تم الدفع أونلاين" : "Paid Online")}
+                            </div>
+                            {isDeposit && (
+                              <p className="text-xs font-normal opacity-80 text-center">
+                                {language === "ar" ? "يرجى دفع المبلغ المتبقي عند الملعب" : "Pay the remaining balance up-front at the court"}
+                              </p>
+                            )}
                           </div>
-                          {isDeposit && (
-                            <p className="text-xs font-normal opacity-80 text-center">
-                              {language === "ar" ? "يرجى دفع المبلغ المتبقي عند الملعب" : "Pay the remaining balance up-front at the court"}
-                            </p>
-                          )}
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full rounded-xl gap-2 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 font-bold py-2.5 shadow-sm"
+                            onClick={() => {
+                              setReceiptBooking(selectedBooking);
+                              setReceiptModalOpen(true);
+                            }}
+                          >
+                            <Receipt className="h-4 w-4 text-emerald-500" />
+                            {language === "ar" ? "عرض وتحميل إيصال الدفع" : "View & Download Payment Receipt"}
+                          </Button>
                         </div>
                       );
                     })()}
@@ -1549,10 +1606,24 @@ export function PlayerBookingsPage() {
                                 ? "إلغاء الحجز"
                                 : "Cancel Booking"}
                             </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {language === "ar"
-                                ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
-                                : "Are you sure you want to cancel this booking?"}
+                            <AlertDialogDescription className="space-y-2 text-start">
+                              <span>
+                                {language === "ar"
+                                  ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
+                                  : "Are you sure you want to cancel this booking?"}
+                              </span>
+                              {selectedBooking.paymentStatus === "paid" && (
+                                <span className="block mt-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                  <strong className="block font-bold mb-1">
+                                    {language === "ar" ? "ℹ️ سياسة الاسترداد (24 ساعة):" : "ℹ️ 24h Auto-Refund Policy:"}
+                                  </strong>
+                                  <span className="block text-[11px] leading-relaxed opacity-90">
+                                    {language === "ar"
+                                      ? "الإلغاء قبل أكثر من 24 ساعة من المباراة يسترد المبلغ تلقائياً إلى بطاقتك البنكية. الإلغاء قبل أقل من 24 ساعة غير قابل للاسترداد وفقاً لسياسة الملعب."
+                                      : "Cancellations > 24h before match start receive an automatic refund to your card. Cancellations within 24h are non-refundable per venue policy."}
+                                  </span>
+                                </span>
+                              )}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -1658,6 +1729,16 @@ export function PlayerBookingsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Payment Receipt Modal */}
+      <PaymentReceiptModal
+        booking={receiptBooking || selectedBooking}
+        open={receiptModalOpen}
+        onOpenChange={(open) => {
+          setReceiptModalOpen(open);
+          if (!open) setReceiptBooking(null);
+        }}
+      />
 
     </div>
   );

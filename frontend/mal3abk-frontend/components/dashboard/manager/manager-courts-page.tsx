@@ -972,6 +972,9 @@ export function ManagerCourtsPage() {
       coverImageIndex: 0,
 
       status: "active",
+      allowOnlinePayment: true,
+      paymentPolicy: "full",
+      depositValue: 0,
     });
     setCurrentStep(1);
   };
