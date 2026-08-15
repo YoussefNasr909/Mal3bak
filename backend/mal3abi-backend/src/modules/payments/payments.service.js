@@ -71,6 +71,14 @@ export async function createCheckoutSessionService({
     }
 
     amount = Number(booking.amount) || Number(booking.totalPrice) || 0;
+    const totalPrice = Number(booking.totalPrice) || amount;
+
+    if (amount <= 0 || amount > totalPrice) {
+      const err = new Error("Invalid online payment amount. Amount must be greater than 0 and cannot exceed the total price of the booking.");
+      err.status = 400;
+      throw err;
+    }
+
     amountCents = Math.round(amount * 100);
     bookingDate = booking.date;
     bookingStartTime = booking.startTime;

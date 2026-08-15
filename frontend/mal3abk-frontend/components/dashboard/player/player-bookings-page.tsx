@@ -683,6 +683,7 @@ export function PlayerBookingsPage() {
 
   const handlePaymobPayForBooking = async (bookingId: string) => {
     if (isPayingPaymob) return;
+    setIsPayingPaymob(false); // Reset immediately to allow retry
     setIsPayingPaymob(true);
 
     try {
@@ -690,18 +691,59 @@ export function PlayerBookingsPage() {
         bookingId,
       });
 
+      if (!sessionData?.checkoutUrl) {
+        throw new Error("No checkout URL received from server");
+      }
+
       toast.loading(language === "ar" ? "جاري التحويل لصفحة باي موب..." : "Redirecting to Paymob...");
       window.location.href = sessionData.checkoutUrl;
     } catch (e: any) {
-      toast.error(
-        e?.message ||
-          (language === "ar"
-            ? "فشل بدء عملية الدفع عبر باي موب"
-            : "Paymob payment initiation failed"),
-      );
+      console.error("Payment initiation error:", e);
+      
+      let errorMessage = language === "ar"
+        ? "فشل بدء عملية الدفع عبر باي موب"
+        : "Paymob payment initiation failed";
+
+      // Provide more specific error messages
+      if (e?.status === 401) {
+        errorMessage = language === "ar"
+          ? "انتهت صلاحية جلستك. يرجى تسجيل الدخول مجددا"
+          : "Session expired. Please log in again";
+      } else if (e?.status === 403) {
+        errorMessage = language === "ar"
+          ? "ليس لديك صلاحية لهذه العملية"
+          : "You don't have permission for this action";
+      } else if (e?.status === 404) {
+        errorMessage = language === "ar"
+          ? "الحجز غير موجود"
+          : "Booking not found";
+      } else if (e?.name === "NetworkError") {
+        errorMessage = language === "ar"
+          ? "خطأ في الاتصال. تأكد من اتصالك بالإنترنت"
+          : "Connection error. Check your internet connection";
+      } else if (e?.message) {
+        errorMessage = e.message;
+      }
+
+      toast.error(errorMessage);
       setIsPayingPaymob(false);
     }
   };
+
+  // Auto-refresh bookings when user returns from payment (visibility change)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      // Refresh bookings when user returns to the page
+      if (document.visibilityState === "visible") {
+        loadBookingsFromApi();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [loadBookingsFromApi]);
 
   return (
     <div className="space-y-6">

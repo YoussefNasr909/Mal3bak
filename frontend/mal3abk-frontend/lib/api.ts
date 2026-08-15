@@ -1631,17 +1631,27 @@ export async function createPaymobCheckoutSession(params: {
   notes?: string
   paymentMethodType?: "card" | "wallet" | "apple_pay" | "all"
 }) {
-  return await apiFetch<{
-    bookingId: string
-    paymentId: string
-    clientSecret: string
-    checkoutUrl: string
-    amount: number
-    currency: string
-  }>(`/payments/create-checkout-session`, {
-    method: "POST",
-    body: JSON.stringify(params),
-  })
+  try {
+    return await apiFetch<{
+      bookingId: string
+      paymentId: string
+      clientSecret: string
+      checkoutUrl: string
+      amount: number
+      currency: string
+    }>(`/payments/create-checkout-session`, {
+      method: "POST",
+      body: JSON.stringify(params),
+    })
+  } catch (error: any) {
+    console.error("Paymob checkout session error:", {
+      message: error?.message,
+      status: error?.status,
+      body: error?.body,
+      params,
+    })
+    throw error
+  }
 }
 
 export async function refundPayment(paymentIdOrBookingId: string, customAmount?: number) {

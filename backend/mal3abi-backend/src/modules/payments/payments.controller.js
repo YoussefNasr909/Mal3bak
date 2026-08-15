@@ -56,7 +56,10 @@ export async function getPaymentStatus(req, res, next) {
     const { transactionId } = req.query; // Accept transactionId from frontend URL
     const result = await getPaymentStatusService(bookingId, req.user, transactionId);
 
-    res.status(200).json(result); // Return unwrapped result
+    res.status(200).json({
+      ok: true,
+      data: result,
+    });
   } catch (error) {
     next(error);
   }
