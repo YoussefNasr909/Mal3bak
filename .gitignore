@@ -58,11 +58,7 @@ Paymob Documentation.pdf
 .mcp.json
 llms.txt
 
-# Audit and prompt reference docs
-PAYMOB_INTEGRATION_AUDIT.md
-paymob_integration*.md
-universal-prompt.md
-universal_prompt*.md
-SESSION_BRIEF*.md
-HANDOVER*.md
+# Markdown Reports & Generated Documentation
+*.md
+!README.md
 
