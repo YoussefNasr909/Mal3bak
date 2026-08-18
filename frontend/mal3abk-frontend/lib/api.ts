@@ -1032,6 +1032,8 @@ export interface CreateManualBookingPayload {
   guestPhone?: string
   paymentMethod?: string
   paymentStatus?: "pending" | "paid" | "failed" | "refunded"
+  discountType?: "percentage" | "fixed"
+  discountValue?: number
 }
 
 export interface ManualBookingCustomerLookup {

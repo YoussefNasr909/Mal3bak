@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -67,6 +68,9 @@ export function NewBookingDialog({
   const [nbLookingUpCustomer, setNbLookingUpCustomer] = useState(false)
   const [nbSubmitting, setNbSubmitting] = useState(false)
   const [nbNote, setNbNote] = useState("")
+  const [nbDiscountEnabled, setNbDiscountEnabled] = useState(false)
+  const [nbDiscountType, setNbDiscountType] = useState<"percentage" | "fixed">("percentage")
+  const [nbDiscountValue, setNbDiscountValue] = useState("")
   const [nbCalendarOpen, setNbCalendarOpen] = useState(false)
   type ManagerBlockedSlot = BookedSlot & { status?: string }
 
@@ -253,7 +257,22 @@ export function NewBookingDialog({
     return total
   }, [nbSelectedCourt, nbTime, nbDuration, nbOffPeakPrice, nbPeakPrice])
 
+  const nbDiscountAmount = useMemo(() => {
+    if (!nbDiscountEnabled || !nbDiscountValue || nbTotalPrice <= 0) return 0
+    const value = Number(nbDiscountValue)
+    if (!Number.isFinite(value) || value <= 0) return 0
+    return nbDiscountType === "percentage"
+      ? Math.min(nbTotalPrice, Math.round((nbTotalPrice * Math.min(value, 100) / 100) * 100) / 100)
+      : Math.min(nbTotalPrice, value)
+  }, [nbDiscountEnabled, nbDiscountType, nbDiscountValue, nbTotalPrice])
+
+  const nbFinalPrice = Math.max(0, Math.round((nbTotalPrice - nbDiscountAmount) * 100) / 100)
+
   const nbNormalizedGuestPhone = useMemo(() => nbGuestPhone.replace(/\D+/g, ""), [nbGuestPhone])
+  const nbPhoneFormatValid = useMemo(
+    () => /^(?:0\d{10}|\+20 ?\d{10})$/.test(nbGuestPhone.trim()),
+    [nbGuestPhone],
+  )
 
   const clearMatchedCustomer = useCallback(
     (clearAutoFilledName = false) => {
@@ -282,6 +301,7 @@ export function NewBookingDialog({
     if (!open) {
       setNbCourtId(""); setNbDate(""); setNbTime(""); setNbDuration(1)
       setNbGuestName(""); setNbGuestPhone(""); setNbMatchedCustomer(null); setNbLookingUpCustomer(false); setNbBookedSlots([]); setNbNote("")
+      setNbDiscountEnabled(false); setNbDiscountType("percentage"); setNbDiscountValue("")
     } else {
       const defaultCourt = managerCourts.length === 1 ? managerCourts[0] : null
       if (defaultCourt) {
@@ -305,7 +325,7 @@ export function NewBookingDialog({
   useEffect(() => {
     if (!open) return
 
-    if (!nbNormalizedGuestPhone || nbNormalizedGuestPhone.length < 10) {
+    if (!nbPhoneFormatValid) {
       setNbLookingUpCustomer(false)
       if (nbMatchedCustomer) clearMatchedCustomer(true)
       return
@@ -320,7 +340,7 @@ export function NewBookingDialog({
     const timeoutId = window.setTimeout(async () => {
       setNbLookingUpCustomer(true)
       try {
-        const res = await lookupManualBookingCustomerByPhoneApi(nbNormalizedGuestPhone)
+        const res = await lookupManualBookingCustomerByPhoneApi(nbGuestPhone.trim())
         if (cancelled) return
         if (res.user) {
           setNbMatchedCustomer(res.user)
@@ -340,13 +360,13 @@ export function NewBookingDialog({
       cancelled = true
       window.clearTimeout(timeoutId)
     }
-  }, [clearMatchedCustomer, nbMatchedCustomer, nbNormalizedGuestPhone, open])
+  }, [clearMatchedCustomer, nbGuestPhone, nbMatchedCustomer, nbNormalizedGuestPhone, nbPhoneFormatValid, open])
 
   const handleCreateBooking = async () => {
     if (!nbCourtId || !nbDate || !nbTime || !nbSlotOk) return
     const matchedCustomer = nbMatchedCustomer
     const guestName = (matchedCustomer?.name ?? nbGuestName).trim()
-    const guestPhone = nbNormalizedGuestPhone
+    const guestPhone = nbGuestPhone.trim()
     if (!matchedCustomer && guestName.length < 2) {
       toast.error(
         language === "ar" ? "أدخل اسم العميل (حرفان على الأقل)." : "Enter the guest name (at least 2 characters).",
@@ -356,6 +376,25 @@ export function NewBookingDialog({
     if (!guestPhone) {
       toast.error(language === "ar" ? "أدخل رقم هاتف العميل." : "Enter the guest phone number.")
       return
+    }
+    if (!nbPhoneFormatValid) {
+      toast.error("Use 0XXXXXXXXXX or +20 XXXXXXXXXX for the phone number.")
+      return
+    }
+    if (nbDiscountEnabled) {
+      const discountValue = Number(nbDiscountValue)
+      if (!Number.isFinite(discountValue) || discountValue <= 0) {
+        toast.error(language === "ar" ? "أدخل قيمة خصم صحيحة." : "Enter a valid discount value.")
+        return
+      }
+      if (nbDiscountType === "percentage" && discountValue > 100) {
+        toast.error(language === "ar" ? "الخصم النسبي لا يمكن أن يتجاوز 100٪." : "Percentage discount cannot exceed 100%.")
+        return
+      }
+      if (nbDiscountType === "fixed" && discountValue > nbTotalPrice) {
+        toast.error(language === "ar" ? "الخصم الثابت لا يمكن أن يتجاوز السعر الكامل للحجز." : "Fixed discount cannot exceed the full booking price.")
+        return
+      }
     }
     setNbSubmitting(true)
     try {
@@ -374,6 +413,7 @@ export function NewBookingDialog({
         notes: nbNote.trim() || notes,
         paymentMethod: "cash",
         paymentStatus: "paid",
+        ...(nbDiscountEnabled ? { discountType: nbDiscountType, discountValue: Number(nbDiscountValue) } : {}),
       })
 
       const newBooking = res.booking || res
@@ -648,14 +688,22 @@ export function NewBookingDialog({
                 <Input
                   value={nbGuestPhone}
                   onChange={(e) => handleNbGuestPhoneChange(e.target.value)}
-                  placeholder={language === "ar" ? "مثال: 01012345678" : "e.g. 01012345678"}
+                  placeholder={language === "ar" ? "مثال: 01012345678" : "e.g. 01012345678 or +20 1012345678"}
                   className="rounded-xl h-10 text-sm"
                   dir="ltr"
                   autoComplete="off"
                   name="manual-booking-guest-phone"
                   inputMode="tel"
+                  maxLength={14}
+                  pattern="(?:0[0-9]{10}|\\+20 ?[0-9]{10})"
+                  aria-invalid={Boolean(nbGuestPhone) && !nbPhoneFormatValid}
                   required
                 />
+                {nbGuestPhone && !nbPhoneFormatValid && (
+                  <p className="text-[10px] text-destructive">
+                    {language === "ar" ? "استخدم 11 رقماً يبدأ بـ 0 أو +20 متبوعاً بـ 10 أرقام." : "Use 0XXXXXXXXXX or +20 XXXXXXXXXX."}
+                  </p>
+                )}
                 {nbLookingUpCustomer && (
                   <p className="text-[10px] text-muted-foreground">
                     {language === "ar" ? "جارٍ التحقق..." : "Checking..."}
@@ -663,6 +711,38 @@ export function NewBookingDialog({
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  {language === "ar" ? "خصم" : "Discount"}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {language === "ar" ? "اختياري على السعر الكامل للحجز" : "Optional discount on the full booking price"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2" dir={language === "ar" ? "rtl" : "ltr"}>
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {language === "ar" ? "تفعيل الخصم" : "Enable discount"}
+                </span>
+                <Switch dir="ltr" checked={nbDiscountEnabled} onCheckedChange={setNbDiscountEnabled} aria-label={language === "ar" ? "تفعيل الخصم" : "Enable discount"} />
+              </div>
+            </div>
+            {nbDiscountEnabled && (
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
+                <div className="flex rounded-lg border border-border/60 bg-background p-1" role="group" aria-label={language === "ar" ? "نوع الخصم" : "Discount type"}>
+                  <button type="button" className={cn("flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-colors", nbDiscountType === "percentage" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")} onClick={() => setNbDiscountType("percentage")}>
+                    {language === "ar" ? "نسبة مئوية" : "Percentage"}
+                  </button>
+                  <button type="button" className={cn("flex-1 rounded-md px-3 py-2 text-xs font-semibold transition-colors", nbDiscountType === "fixed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")} onClick={() => setNbDiscountType("fixed")}>
+                    {language === "ar" ? "قيمة ثابتة" : "Fixed amount"}
+                  </button>
+                </div>
+                <Input type="number" min={0} max={nbDiscountType === "percentage" ? 100 : nbTotalPrice || undefined} step="0.01" value={nbDiscountValue} onChange={(e) => setNbDiscountValue(e.target.value)} placeholder={nbDiscountType === "percentage" ? "e.g. 20" : "e.g. 200"} className="rounded-lg h-10 text-sm" inputMode="decimal" aria-label={language === "ar" ? "قيمة الخصم" : "Discount value"} />
+              </div>
+            )}
           </div>
 
           {/* ── Note ── */}
@@ -689,13 +769,15 @@ export function NewBookingDialog({
                 {language === "ar" ? "الإجمالي" : "Total"}
               </p>
               <p className="text-[10px] text-muted-foreground/70">
-                {language === "ar"
-                  ? "كود دخول من 8 رموز"
-                  : "8-char check-in code generated"}
+                {nbDiscountAmount > 0
+                  ? (language === "ar"
+                    ? `السعر الكامل ${nbTotalPrice} ج.م - الخصم ${nbDiscountAmount} ج.م`
+                    : `Full price ${nbTotalPrice} EGP - discount ${nbDiscountAmount} EGP`)
+                  : (language === "ar" ? "كود دخول من 8 رموز" : "8-char check-in code generated")}
               </p>
             </div>
             <span className="text-2xl font-extrabold text-primary">
-              {nbTime ? nbTotalPrice : 0}
+              {nbTime ? nbFinalPrice : 0}
               <span className="text-sm font-semibold ml-1 text-primary/70">{language === "ar" ? "ج.م" : "EGP"}</span>
             </span>
           </div>

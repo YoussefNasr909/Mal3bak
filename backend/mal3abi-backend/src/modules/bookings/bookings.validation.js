@@ -1,5 +1,5 @@
 import Joi from "joi";
-import { isValidPhoneDigits, normalizePhone } from "../../utils/phone.js";
+import { isValidEgyptianManualPhone, isValidPhoneDigits, normalizePhone } from "../../utils/phone.js";
 
 const timeRegex = /^([01]\d|2[0-3]):00$/;
 const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -71,6 +71,9 @@ export const createManualBookingSchema = Joi.object({
     .allow("", null)
     .custom((value, helpers) => {
       if (value === "" || value === null || value === undefined) return value;
+      if (!isValidEgyptianManualPhone(value)) {
+        return helpers.message({ custom: "Phone must be 0XXXXXXXXXX or +20 XXXXXXXXXX." });
+      }
       const d = normalizePhone(value);
       if (!isValidPhoneDigits(d)) {
         return helpers.message({ custom: "Invalid phone number" });
@@ -79,6 +82,8 @@ export const createManualBookingSchema = Joi.object({
     }),
   paymentStatus: Joi.string().valid("pending", "paid", "refunded").default("paid"),
   paymentMethod: Joi.string().allow("", null),
+  discountType: Joi.string().valid("percentage", "fixed").allow(null, ""),
+  discountValue: Joi.number().greater(0).allow(null, ""),
 }).custom((value, helpers) => {
   const userId = value.userId && String(value.userId).trim();
   const phone = value.guestPhone && String(value.guestPhone);
@@ -96,6 +101,15 @@ export const createManualBookingSchema = Joi.object({
       });
     }
   }
+  if (value.discountValue !== undefined && value.discountValue !== null && value.discountValue !== "" && !value.discountType) {
+    return helpers.message({ custom: "discountType is required when discountValue is provided." });
+  }
+  if (value.discountType === "percentage" && Number(value.discountValue) > 100) {
+    return helpers.message({ custom: "Percentage discount cannot exceed 100%." });
+  }
+  if (value.discountType && (value.discountValue === undefined || value.discountValue === null || value.discountValue === "")) {
+    return helpers.message({ custom: "discountValue is required when a discount type is provided." });
+  }
   return value;
 });
 
@@ -103,6 +117,9 @@ export const lookupManualBookingCustomerSchema = Joi.object({
   phone: Joi.string()
     .required()
     .custom((value, helpers) => {
+      if (!isValidEgyptianManualPhone(value)) {
+        return helpers.message({ custom: "Phone must be 0XXXXXXXXXX or +20 XXXXXXXXXX." });
+      }
       const digits = normalizePhone(value);
       if (!isValidPhoneDigits(digits)) {
         return helpers.message({ custom: "Invalid phone number" });

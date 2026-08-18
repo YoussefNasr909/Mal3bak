@@ -169,6 +169,163 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
 
       global.fetch = originalFetch;
     });
+
+    it("should calculate percentage deposits in piastre precision", async () => {
+      await prisma.court.update({
+        where: { id: managerA.courtId },
+        data: {
+          peakPrice: 190,
+          offPeakPrice: 190,
+          paymentPolicy: "percentage",
+          depositValue: 33.33,
+          allowOnlinePayment: true,
+        },
+      });
+
+      const originalFetch = global.fetch;
+      let sentAmountCents = 0;
+      global.fetch = jest.fn().mockImplementation((url, opts) => {
+        sentAmountCents = JSON.parse(opts.body).amount;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "pi_test_dep_percentage",
+            client_secret: "egy_csk_test_dep_percentage",
+            intention_order_id: 223344,
+          }),
+        });
+      });
+
+      const res = await request(app)
+        .post("/api/v1/payments/create-checkout-session")
+        .set("Origin", ORIGIN)
+        .set("Cookie", [playerA.token])
+        .send({
+          courtId: managerA.courtId,
+          date: testDate,
+          startTime: "19:00",
+          endTime: "20:00",
+          paymentMethodType: "card",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.amount).toBe(63.33);
+      expect(sentAmountCents).toBe(6333);
+
+      global.fetch = originalFetch;
+    });
+
+    it("should reject a fixed deposit above the court's lowest full price", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/courts/${managerA.courtId}`)
+        .set("Origin", ORIGIN)
+        .set("Cookie", [adminUser.token])
+        .send({
+          peakPrice: 190,
+          offPeakPrice: 150,
+          paymentPolicy: "fixed",
+          depositValue: 150.01,
+          allowOnlinePayment: true,
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("should recalculate the deposit for an existing booking before checkout", async () => {
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "13:00",
+          endTime: "14:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 190,
+          amount: 190,
+          status: "pending",
+          paymentStatus: "pending",
+          checkInCode: `DEP${Date.now()}`,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      });
+
+      await prisma.court.update({
+        where: { id: managerA.courtId },
+        data: { paymentPolicy: "fixed", depositValue: 100, allowOnlinePayment: true },
+      });
+
+      const bookingsRes = await request(app)
+        .get("/api/v1/bookings?mine=true")
+        .set("Origin", ORIGIN)
+        .set("Cookie", [playerA.token]);
+      const playerBooking = bookingsRes.body.items?.find((item) => item.id === booking.id);
+      expect(bookingsRes.status).toBe(200);
+      expect(playerBooking.court).toMatchObject({
+        allowOnlinePayment: true,
+        paymentPolicy: "fixed",
+        depositValue: 100,
+      });
+
+      const originalFetch = global.fetch;
+      let sentAmountCents;
+      global.fetch = jest.fn().mockImplementation((url, opts) => {
+        sentAmountCents = JSON.parse(opts.body).amount;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "pi_test_existing_deposit",
+            client_secret: "egy_csk_test_existing_deposit",
+            intention_order_id: 445566,
+          }),
+        });
+      });
+
+      const res = await request(app)
+        .post("/api/v1/payments/create-checkout-session")
+        .set("Origin", ORIGIN)
+        .set("Cookie", [playerA.token])
+        .send({ bookingId: booking.id, paymentMethodType: "card" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.amount).toBe(100);
+      expect(sentAmountCents).toBe(10000);
+
+      const updatedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
+      expect(Number(updatedBooking.amount)).toBe(100);
+
+      global.fetch = originalFetch;
+    });
+
+    it("should not create a second checkout for an already paid booking", async () => {
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "15:00",
+          endTime: "16:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 100,
+          amount: 100,
+          status: "confirmed",
+          paymentStatus: "paid",
+          checkInCode: `PAID${Date.now()}`,
+        },
+      });
+
+      const res = await request(app)
+        .post("/api/v1/payments/create-checkout-session")
+        .set("Origin", ORIGIN)
+        .set("Cookie", [playerA.token])
+        .send({ bookingId: booking.id, paymentMethodType: "card" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error || res.body.message).toMatch(/already been paid/i);
+    });
   });
 
   describe("POST /api/v1/payments/webhook", () => {
@@ -284,6 +441,72 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
 
       expect(res2.status).toBe(200);
       expect(res2.body.processed).toBe(true);
+    });
+
+    it("should reject a valid callback whose amount differs from the checkout amount", async () => {
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "17:00",
+          endTime: "18:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 190,
+          amount: 100,
+          status: "pending",
+          paymentStatus: "pending",
+          checkInCode: `AMT${Date.now()}`,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      });
+      const payment = await prisma.payment.create({
+        data: {
+          bookingId: booking.id,
+          userId: playerA.userId,
+          provider: "paymob",
+          paymobOrderId: `amt_order_${Date.now()}`,
+          amountCents: 10000,
+          currency: "EGP",
+          status: "pending",
+        },
+      });
+      const callbackObj = {
+        amount_cents: 9000,
+        created_at: "2026-08-14T22:40:00.000000",
+        currency: "EGP",
+        error_occured: false,
+        has_parent_transaction: false,
+        id: 12345001,
+        integration_id: 5835543,
+        is_3d_secure: true,
+        is_auth: false,
+        is_capture: false,
+        is_refunded: false,
+        is_standalone_payment: true,
+        is_voided: false,
+        order: { id: 12345002, merchant_order_id: `${booking.id}_${Date.now()}` },
+        owner: 2428940,
+        pending: false,
+        source_data: { pan: "2346", sub_type: "MasterCard", type: "card" },
+        success: true,
+      };
+      const validHmac = generateValidHmac(callbackObj);
+
+      const res = await request(app)
+        .post(`/api/v1/payments/webhook?hmac=${validHmac}`)
+        .set("Origin", ORIGIN)
+        .send({ obj: callbackObj });
+
+      expect(res.status).toBe(200);
+      expect(res.body.processed).toBe(false);
+      expect(res.body.reason).toBe("PAYMENT_AMOUNT_MISMATCH");
+      const unchangedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+      expect(unchangedPayment.status).toBe("pending");
+      const unchangedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
+      expect(unchangedBooking.paymentStatus).toBe("pending");
     });
 
     it("should handle portal refunds (is_refunded: true)", async () => {

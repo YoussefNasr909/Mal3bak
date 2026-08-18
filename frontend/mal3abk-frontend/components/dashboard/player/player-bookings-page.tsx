@@ -310,7 +310,9 @@ export function PlayerBookingsPage() {
       };
 
       if (debouncedSearch.trim()) params.q = debouncedSearch.trim();
-      if (statusFilter !== "all" && statusFilter !== "paid") {
+      if (statusFilter === "paid") {
+        params.paymentStatus = "paid";
+      } else if (statusFilter !== "all") {
         params.status = statusFilter;
       }
 
@@ -559,9 +561,7 @@ export function PlayerBookingsPage() {
     [searchQuery],
   );
 
-  const filteredBookings = statusFilter === "paid"
-    ? bookings.filter((b) => (b as any).paymentStatus === "paid")
-    : bookings;
+  const filteredBookings = bookings;
   const sortedBookings = filteredBookings;
   const paginatedBookings = filteredBookings;
 
@@ -1128,7 +1128,7 @@ export function PlayerBookingsPage() {
                               <div className="mt-3 flex flex-wrap items-center gap-4">
                                 <div className="flex items-center gap-2">
                                   <span className="text-lg sm:text-xl font-bold text-foreground">
-                                    {(booking.amount as any) || 0}
+                                    {Number(booking.totalPrice ?? booking.amount ?? 0).toLocaleString()}
                                   </span>
                                   <span className="text-muted-foreground">
                                     {t("common.egp")}
@@ -1499,10 +1499,10 @@ export function PlayerBookingsPage() {
 
                       <div className="mt-3 flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
-                          {language === "ar" ? "المبلغ" : "Amount"}
+                          {language === "ar" ? "السعر الكامل" : "Full price"}
                         </span>
                         <span className="font-extrabold">
-                          {(selectedBooking.amount as any) || 0}{" "}
+                          {Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0).toLocaleString()}{" "}
                           {t("common.egp")}
                         </span>
                       </div>
@@ -1559,8 +1559,12 @@ export function PlayerBookingsPage() {
                       </div>
                     </div>
                     {selectedBooking.paymentStatus === "paid" && (() => {
-                      const policy = (selectedBooking as any).court?.paymentPolicy ?? "full";
-                      const isDeposit = policy === "percentage" || policy === "fixed";
+                      const total = Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0);
+                      const paidPayment = selectedBooking.payments?.find((payment) => payment.status === "paid")
+                        || (selectedBooking.latestPayment?.status === "paid" ? selectedBooking.latestPayment : null);
+                      const paidOnlineAmount = Number(paidPayment?.amount ?? selectedBooking.amount ?? total);
+                      const remainingAtVenue = Math.max(0, Math.round((total - paidOnlineAmount) * 100) / 100);
+                      const isDeposit = paidOnlineAmount < total;
                       return (
                         <div className="space-y-2 w-full">
                           <div className={`w-full rounded-xl py-3 flex flex-col items-center justify-center gap-1 font-semibold border ${isDeposit ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"}`}>
@@ -1572,7 +1576,9 @@ export function PlayerBookingsPage() {
                             </div>
                             {isDeposit && (
                               <p className="text-xs font-normal opacity-80 text-center">
-                                {language === "ar" ? "يرجى دفع المبلغ المتبقي عند الملعب" : "Pay the remaining balance up-front at the court"}
+                                {language === "ar"
+                                  ? `تم دفع ${paidOnlineAmount} ج.م أونلاين، والمتبقي ${remainingAtVenue} ج.م في الملعب`
+                                  : `Paid ${paidOnlineAmount} EGP online; ${remainingAtVenue} EGP remains at the venue`}
                               </p>
                             )}
                           </div>
@@ -1611,7 +1617,7 @@ export function PlayerBookingsPage() {
                             const depositVal = Number((selectedBooking as any).court?.depositValue ?? 0)
                             const total = Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0)
                             if (policy === "percentage" && depositVal > 0) {
-                              const due = Math.round((total * depositVal) / 100)
+                              const due = Math.round(((total * depositVal) / 100) * 100) / 100
                               return language === "ar"
                                 ? `ادفع عربون ${depositVal}% (${due} ج.م)`
                                 : `Pay ${depositVal}% Deposit (${due} EGP)`

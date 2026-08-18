@@ -309,6 +309,8 @@ model Booking {
   duration                          Int
   totalPrice                        Decimal       @db.Decimal(10, 2)
   amount                            Decimal       @db.Decimal(10, 2)
+  discountType                      String?
+  discountValue                     Decimal?      @db.Decimal(10, 2)
   status                            BookingStatus @default(confirmed)
   paymentStatus                     PaymentStatus @default(pending)
   paymentMethod                     String?

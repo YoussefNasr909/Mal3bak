@@ -63,20 +63,23 @@ export function PaymentReceiptModal({
   const depositValue = Number(booking.court?.depositValue || 0)
 
   // Calculate actual paid online amount vs remaining at venue
-  const latestPayment = booking.latestPayment || booking.payments?.[0]
+  const latestPayment = booking.payments?.find((payment) => payment.status === "paid")
+    || (booking.latestPayment?.status === "paid" ? booking.latestPayment : null)
   let paidOnlineAmount = 0
   if (latestPayment?.amount) {
     paidOnlineAmount = Number(latestPayment.amount)
+  } else if (booking.amount !== undefined && Number(booking.amount) > 0) {
+    paidOnlineAmount = Number(booking.amount)
   } else if (paymentPolicy === "percentage" && depositValue > 0) {
-    paidOnlineAmount = Math.round((totalAmount * depositValue) / 100)
+    paidOnlineAmount = Math.round(((totalAmount * depositValue) / 100) * 100) / 100
   } else if (paymentPolicy === "fixed" && depositValue > 0) {
     paidOnlineAmount = Math.min(totalAmount, depositValue)
   } else {
     paidOnlineAmount = totalAmount
   }
 
-  const remainingDueAtCourt = Math.max(0, totalAmount - paidOnlineAmount)
-  const isDeposit = paymentPolicy === "percentage" || paymentPolicy === "fixed"
+  const remainingDueAtCourt = Math.max(0, Math.round((totalAmount - paidOnlineAmount) * 100) / 100)
+  const isDeposit = paidOnlineAmount < totalAmount
   const transactionId = latestPayment?.paymobTransactionId || "N/A"
   const receiptNumber = `REC-${(booking.checkInCode || booking.id.slice(0, 8)).toUpperCase()}`
   const paymentDate = latestPayment?.createdAt

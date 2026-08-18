@@ -156,6 +156,9 @@ const bookingCourtSelect = {
   openTime: true,
   closeTime: true,
   useOpeningDayForOvernightBookings: true,
+  allowOnlinePayment: true,
+  paymentPolicy: true,
+  depositValue: true,
 };
 
 function assertPlayerDurationRules(startTime, endTime) {
@@ -194,13 +197,29 @@ const bookingUserSelect = {
 
 const bookingPaymentSelect = {
   id: true,
-  amount: true,
+  amountCents: true,
   currency: true,
   status: true,
   paymentMethod: true,
   paymobTransactionId: true,
   createdAt: true,
 };
+
+function formatPaymentHistoryItem(payment) {
+  if (!payment) return null;
+
+  const amountCents = Number(payment.amountCents ?? payment.amount ?? 0);
+
+  return {
+    id: payment.id,
+    amount: amountCents / 100,
+    currency: payment.currency || "EGP",
+    status: payment.status,
+    paymentMethod: payment.paymentMethod || "card",
+    paymobTransactionId: payment.paymobTransactionId || null,
+    createdAt: payment.createdAt,
+  };
+}
 
 const bookingDetailsInclude = {
   court: { select: bookingCourtSelect },
@@ -1078,6 +1097,8 @@ function formatBooking(b) {
     duration: b.duration,
     totalPrice: Number(b.totalPrice),
     amount: Number(b.amount),
+    discountType: b.discountType || null,
+    discountValue: b.discountValue == null ? null : Number(b.discountValue),
     status: normalizeLegacyBookingStatus(b.status),
     paymentStatus: b.paymentStatus,
     paymentMethod: b.paymentMethod,
@@ -1104,27 +1125,11 @@ function formatBooking(b) {
     checkInWindowCloseTime: fmt(closeD),
     useOpeningDayForOvernightBookings: useOpeningDay,
     payments: Array.isArray(b.payments)
-      ? b.payments.map((p) => ({
-          id: p.id,
-          amount: Number(p.amount),
-          currency: p.currency || "EGP",
-          status: p.status,
-          paymentMethod: p.paymentMethod || "card",
-          paymobTransactionId: p.paymobTransactionId || null,
-          createdAt: p.createdAt,
-        }))
+      ? b.payments.map(formatPaymentHistoryItem)
       : [],
     latestPayment:
       Array.isArray(b.payments) && b.payments.length > 0
-        ? {
-            id: b.payments[0].id,
-            amount: Number(b.payments[0].amount),
-            currency: b.payments[0].currency || "EGP",
-            status: b.payments[0].status,
-            paymentMethod: b.payments[0].paymentMethod || "card",
-            paymobTransactionId: b.payments[0].paymobTransactionId || null,
-            createdAt: b.payments[0].createdAt,
-          }
+        ? formatPaymentHistoryItem(b.payments[0])
         : null,
     court: b.court ? {
       allowOnlinePayment: b.court.allowOnlinePayment !== false,
@@ -1855,6 +1860,29 @@ export async function createManualBookingService(payload, currentUser) {
       payload.startTime,
       payload.endTime,
     );
+    const discountType = payload.discountType || null;
+    const requestedDiscount = payload.discountValue == null || payload.discountValue === ""
+      ? 0
+      : Number(payload.discountValue);
+    if (discountType && (!Number.isFinite(requestedDiscount) || requestedDiscount <= 0)) {
+      const err = new Error("Discount value must be greater than 0.");
+      err.status = 400;
+      throw err;
+    }
+    if (discountType === "percentage" && requestedDiscount > 100) {
+      const err = new Error("Percentage discount cannot exceed 100%.");
+      err.status = 400;
+      throw err;
+    }
+    if (discountType === "fixed" && requestedDiscount > pricing.totalPrice) {
+      const err = new Error(`Fixed discount cannot exceed the full booking price (${pricing.totalPrice} EGP).`);
+      err.status = 400;
+      throw err;
+    }
+    const discountAmount = discountType === "percentage"
+      ? (pricing.totalPrice * requestedDiscount) / 100
+      : discountType === "fixed" ? requestedDiscount : 0;
+    const finalPrice = Math.round(Math.max(0, pricing.totalPrice - discountAmount) * 100) / 100;
     const checkInCode = await generateUniqueCode(tx);
 
     const booking = await tx.booking.create({
@@ -1869,8 +1897,10 @@ export async function createManualBookingService(payload, currentUser) {
         useOpeningDayForOvernightBookings:
           court.useOpeningDayForOvernightBookings === true,
         duration: pricing.duration,
-        totalPrice: toDecimal(pricing.totalPrice),
-        amount: toDecimal(pricing.totalPrice),
+        totalPrice: toDecimal(finalPrice),
+        amount: toDecimal(finalPrice),
+        discountType,
+        discountValue: discountType ? toDecimal(requestedDiscount) : null,
         status: payload.status || "confirmed",
         paymentStatus: payload.paymentStatus || "pending",
         paymentMethod: payload.paymentMethod || null,
@@ -3373,4 +3403,3 @@ export async function expireStaleBookingHoldsService() {
     return 0;
   }
 }
-

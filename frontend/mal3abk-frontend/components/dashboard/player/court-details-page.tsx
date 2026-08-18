@@ -1234,17 +1234,72 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
             </div>
 
             {/* Price summary — only visible when a time is selected */}
-            {selectedTime && (
-              <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
-                <div className="text-xs text-muted-foreground">
-                  <span>{tr("من", "From")} </span>
-                  <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language)}</span>
-                  <span> {tr("حتى", "to")} </span>
-                  <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language)}</span>
+            {selectedTime && (() => {
+              let depositAmount = 0;
+              let hasDeposit = false;
+              let isFullOnlinePayment = false;
+
+              if (court.allowOnlinePayment !== false && court.paymentPolicy) {
+                if (court.paymentPolicy === "full") {
+                  isFullOnlinePayment = true;
+                } else {
+                  hasDeposit = true;
+                  const depositVal = Number(court.depositValue || 0);
+                  if (court.paymentPolicy === "percentage") {
+                    depositAmount = Math.round(((totalPrice * depositVal) / 100) * 100) / 100;
+                  } else if (court.paymentPolicy === "fixed") {
+                    depositAmount = Math.min(totalPrice, depositVal);
+                  }
+                }
+              }
+
+              const remaining = Math.max(0, Math.round((totalPrice - depositAmount) * 100) / 100);
+
+              return (
+                <div className="space-y-2">
+                  <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
+                      <span>{tr("من", "From")} </span>
+                      <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language)}</span>
+                      <span> {tr("حتى", "to")} </span>
+                      <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language)}</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      {hasDeposit && depositAmount > 0 ? (
+                        <>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground">
+                              {tr("السعر الكامل", "Full price")}: <span className="font-semibold text-foreground">{totalPrice} {t("common.egp") ?? "EGP"}</span>
+                            </div>
+                            <span className="text-xl font-extrabold text-amber-600 dark:text-amber-500">{depositAmount} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                          </div>
+                          <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                            {tr("العربون المطلوب الآن", "Online deposit due now")}
+                          </span>
+                        </>
+                      ) : isFullOnlinePayment ? (
+                        <>
+                          <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                          <span className="text-[10px] text-primary/80 font-medium bg-primary/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                            {tr("دفع كامل أونلاين", "Full Online Payment")}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Remaining breakdown if applicable */}
+                  {hasDeposit && depositAmount > 0 && remaining > 0 && (
+                    <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{tr("الباقي للدفع في الملعب", "Remaining Due at Venue")}</span>
+                      <span className="font-semibold text-foreground">{remaining} {t("common.egp") ?? "EGP"}</span>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:px-6 sm:pb-6 sm:pt-4 flex-col sm:flex-row">

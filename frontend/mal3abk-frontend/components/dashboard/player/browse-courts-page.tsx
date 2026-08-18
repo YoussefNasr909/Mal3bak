@@ -1676,17 +1676,58 @@ export function BrowseCourtsPage() {
               </div>
 
               {/* Price summary */}
-              {selectedTime && (
-                <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">
-                    <span>{language === "ar" ? "من" : "From"} </span>
-                    <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language as "ar" | "en")}</span>
-                    <span> {language === "ar" ? "حتى" : "to"} </span>
-                    <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language as "ar" | "en")}</span>
+              {selectedTime && (() => {
+                const policy = selectedCourt?.paymentPolicy ?? "full"
+                const depositValue = Number(selectedCourt?.depositValue || 0)
+                const hasDeposit = selectedCourt?.allowOnlinePayment !== false && (policy === "percentage" || policy === "fixed")
+                const depositAmount = hasDeposit
+                  ? policy === "percentage"
+                    ? Math.round(((totalPrice * depositValue) / 100) * 100) / 100
+                    : Math.min(totalPrice, depositValue)
+                  : 0
+                const remaining = Math.max(0, Math.round((totalPrice - depositAmount) * 100) / 100)
+
+                return (
+                  <div className="space-y-2">
+                    <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
+                      <div className="text-xs text-muted-foreground">
+                        <span>{language === "ar" ? "من" : "From"} </span>
+                        <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language as "ar" | "en")}</span>
+                        <span> {language === "ar" ? "حتى" : "to"} </span>
+                        <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language as "ar" | "en")}</span>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        {hasDeposit && depositAmount > 0 ? (
+                          <>
+                            <span className="text-xs text-muted-foreground">
+                              {language === "ar" ? "السعر الكامل" : "Full price"}: <span className="font-semibold text-foreground">{totalPrice} {t("common.egp")}</span>
+                            </span>
+                            <span className="text-xl font-extrabold text-amber-600 dark:text-amber-500">{depositAmount} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
+                            <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                              {language === "ar" ? "العربون المطلوب الآن" : "Online deposit due now"}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
+                            {selectedCourt?.allowOnlinePayment !== false && policy === "full" && (
+                              <span className="text-[10px] text-primary/80 font-medium bg-primary/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                                {language === "ar" ? "دفع كامل أونلاين" : "Full online payment"}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {hasDeposit && depositAmount > 0 && remaining > 0 && (
+                      <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{language === "ar" ? "الباقي للدفع في الملعب" : "Remaining due at venue"}</span>
+                        <span className="font-semibold text-foreground">{remaining} {t("common.egp")}</span>
+                      </div>
+                    )}
                   </div>
-                  <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
-                </div>
-              )}
+                )
+              })()}
 
             </div>
           )}

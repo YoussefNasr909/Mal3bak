@@ -47,6 +47,35 @@ describe("booking validation schemas", () => {
     expect(error.details[0].path).toContain("guestPhone");
   });
 
+  it("accepts the supported Egyptian local and international manual phone formats", () => {
+    for (const guestPhone of ["01012345678", "+20 1012345678", "+201012345678"]) {
+      const { error } = createManualBookingSchema.validate({
+        courtId: validCourtId,
+        date: cairoDateFromNow(7),
+        startTime: "10:00",
+        endTime: "11:00",
+        guestName: "Walk In",
+        guestPhone,
+      });
+      expect(error).toBeUndefined();
+    }
+  });
+
+  it("rejects manual phone numbers outside the supported Egyptian formats", () => {
+    for (const guestPhone of ["1234567890", "010123456789", "+1 2025550100"]) {
+      const { error } = createManualBookingSchema.validate({
+        courtId: validCourtId,
+        date: cairoDateFromNow(7),
+        startTime: "10:00",
+        endTime: "11:00",
+        guestName: "Walk In",
+        guestPhone,
+      });
+      expect(error).toBeDefined();
+      expect(error.details[0].path).toContain("guestPhone");
+    }
+  });
+
   it("rejects booking notes longer than 200 characters", () => {
     const { error } = createBookingSchema.validate({
       courtId: validCourtId,

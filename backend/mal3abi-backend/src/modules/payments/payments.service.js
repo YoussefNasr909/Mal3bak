@@ -11,6 +11,19 @@ import {
   generateUniqueCode,
 } from "../bookings/bookings.service.js";
 
+export function calculateOnlinePaymentAmount(totalPrice, court) {
+  const normalizedTotal = Number(totalPrice) || 0;
+  let amount = normalizedTotal;
+
+  if (court?.paymentPolicy === "percentage") {
+    amount = (normalizedTotal * Number(court.depositValue || 0)) / 100;
+  } else if (court?.paymentPolicy === "fixed") {
+    amount = Math.min(normalizedTotal, Number(court.depositValue || 0));
+  }
+
+  return Math.round(amount * 100) / 100;
+}
+
 /**
  * Creates a checkout session for court booking via Paymob.
  */
@@ -61,6 +74,24 @@ export async function createCheckoutSessionService({
       throw err;
     }
 
+    if (["cancelled", "completed", "no_show"].includes(booking.status)) {
+      const err = new Error("This booking is no longer eligible for online payment.");
+      err.status = 400;
+      throw err;
+    }
+
+    if (booking.paymentStatus === "paid") {
+      const err = new Error("This booking has already been paid.");
+      err.status = 400;
+      throw err;
+    }
+
+    if (booking.paymentStatus === "refunded") {
+      const err = new Error("This booking has been refunded and cannot be paid again.");
+      err.status = 400;
+      throw err;
+    }
+
     court = booking.court;
 
     // Guard: court must allow online payments
@@ -70,8 +101,8 @@ export async function createCheckoutSessionService({
       throw err;
     }
 
-    amount = Number(booking.amount) || Number(booking.totalPrice) || 0;
-    const totalPrice = Number(booking.totalPrice) || amount;
+    const totalPrice = Number(booking.totalPrice) || Number(booking.amount) || 0;
+    amount = calculateOnlinePaymentAmount(totalPrice, court);
 
     if (amount <= 0 || amount > totalPrice) {
       const err = new Error("Invalid online payment amount. Amount must be greater than 0 and cannot exceed the total price of the booking.");
@@ -80,6 +111,13 @@ export async function createCheckoutSessionService({
     }
 
     amountCents = Math.round(amount * 100);
+    if (Number(booking.amount) !== amount) {
+      booking = await prisma.booking.update({
+        where: { id: booking.id },
+        data: { amount },
+        include: { court: true },
+      });
+    }
     bookingDate = booking.date;
     bookingStartTime = booking.startTime;
     bookingEndTime = booking.endTime;
@@ -98,12 +136,7 @@ export async function createCheckoutSessionService({
       }
 
       const pricing = calculateBookingPricing(c, startTime, endTime);
-      let computedAmount = pricing.totalPrice;
-      if (c.paymentPolicy === "percentage") {
-        computedAmount = (pricing.totalPrice * Number(c.depositValue || 0)) / 100;
-      } else if (c.paymentPolicy === "fixed") {
-        computedAmount = Math.min(pricing.totalPrice, Number(c.depositValue || 0));
-      }
+      const computedAmount = calculateOnlinePaymentAmount(pricing.totalPrice, c);
 
       const checkInCode = await generateUniqueCode(tx);
 
@@ -211,7 +244,11 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
   const rawReference = obj.order?.merchant_order_id || obj.special_reference || "";
   // Strip off the timestamp we appended to avoid Paymob duplicate order errors
   const specialReference = rawReference.split('_')[0];
-  const isPaidSuccess = obj.success === true && obj.pending === false;
+  const isPaidSuccess =
+    obj.success === true &&
+    obj.pending === false &&
+    obj.is_refunded !== true &&
+    obj.is_voided !== true;
 
   // 2. Perform Atomic Database Update with Deduplication
   const result = await prisma.$transaction(async (tx) => {
@@ -234,6 +271,24 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
         ],
       },
     });
+
+    if (isPaidSuccess) {
+      const callbackAmountCents = Number(obj.amount_cents);
+      const callbackCurrency = String(obj.currency || "EGP");
+      let expectedAmountCents = payment ? Number(payment.amountCents) : 0;
+      if (!payment && specialReference) {
+        const referencedBooking = await tx.booking.findUnique({
+          where: { id: specialReference },
+          select: { amount: true },
+        });
+        expectedAmountCents = Math.round(Number(referencedBooking?.amount || 0) * 100);
+      }
+      const expectedCurrency = payment?.currency || "EGP";
+
+      if (!Number.isFinite(callbackAmountCents) || callbackAmountCents !== expectedAmountCents || callbackCurrency !== expectedCurrency) {
+        return { rejected: true, reason: "PAYMENT_AMOUNT_MISMATCH" };
+      }
+    }
 
     // Branch A: Portal Refund Webhook
     if (obj.is_refunded === true) {
@@ -313,7 +368,7 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
     } else {
       // Branch C: Payment Failed or Pending (Allow retry while hold is active)
       if (payment) {
-        const newStatus = obj.error_occured ? "failed" : "pending";
+        const newStatus = obj.error_occured || obj.success === false ? "failed" : "pending";
         payment = await tx.payment.update({
           where: { id: payment.id },
           data: {
@@ -345,6 +400,10 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
 
     return { duplicate: false, payment };
   });
+
+  if (result?.rejected) {
+    return { success: false, reason: result.reason };
+  }
 
   return { success: true, isPaid: isPaidSuccess, result };
 }
@@ -403,7 +462,15 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
   if (latestPayment && latestPayment.status === "pending" && activeTxId) {
     try {
       const inquiryResult = await inquireTransaction(activeTxId);
-      if (inquiryResult && inquiryResult.success === true) {
+      const inquiryAmountCents = Number(inquiryResult?.amount_cents);
+      const expectedAmountCents = Number(latestPayment.amountCents);
+      const inquiryIsSettled =
+        inquiryResult?.success === true &&
+        inquiryResult?.pending === false &&
+        inquiryResult?.is_refunded !== true &&
+        inquiryResult?.is_voided !== true;
+
+      if (inquiryIsSettled && inquiryAmountCents === expectedAmountCents && String(inquiryResult.currency || "EGP") === String(latestPayment.currency || "EGP")) {
         latestPayment = await prisma.payment.update({
           where: { id: latestPayment.id },
           data: {
@@ -421,8 +488,11 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
         booking.status = "confirmed";
         booking.paymentStatus = "paid";
       }
-    } catch {
-      // Ignore inquiry failure and return current DB status
+    } catch (error) {
+      console.error("Paymob Inquiry API Fallback Error:", error);
+      const err = new Error("Failed to verify payment status with payment provider. Please try again later.");
+      err.status = 502;
+      throw err;
     }
   }
 

@@ -55,6 +55,24 @@ const baseCourtSchema = {
   managerId: Joi.string().uuid(), // ✅ Strict UUID check
 };
 
+const validateDeposit = (value, helpers) => {
+  if (value.paymentPolicy && value.paymentPolicy !== "full") {
+    if (value.depositValue !== undefined && value.depositValue <= 0) {
+      return helpers.message({ custom: "depositValue must be greater than 0 for percentage or fixed payment policies." });
+    }
+    if (value.paymentPolicy === "percentage" && value.depositValue > 100) {
+      return helpers.message({ custom: "depositValue cannot exceed 100 for percentage payment policy." });
+    }
+    if (value.paymentPolicy === "fixed" && value.peakPrice && value.offPeakPrice) {
+      const maximumFixedDeposit = Math.min(value.peakPrice, value.offPeakPrice);
+      if (value.depositValue > maximumFixedDeposit) {
+        return helpers.message({ custom: `depositValue cannot exceed the court's lowest full price (${maximumFixedDeposit} EGP).` });
+      }
+    }
+  }
+  return value;
+};
+
 export const createCourtSchema = Joi.object({
   ...baseCourtSchema,
   name: baseCourtSchema.name.required(),
@@ -68,9 +86,9 @@ export const createCourtSchema = Joi.object({
   closeTime: baseCourtSchema.closeTime.required(),
   peakStartTime: baseCourtSchema.peakStartTime.default("18:00"),
   peakEndTime: baseCourtSchema.peakEndTime.default("06:00"),
-});
+}).custom(validateDeposit);
 
-export const updateCourtSchema = Joi.object(baseCourtSchema).min(1);
+export const updateCourtSchema = Joi.object(baseCourtSchema).min(1).custom(validateDeposit);
 
 export const topBookedCourtsSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(12).default(3),

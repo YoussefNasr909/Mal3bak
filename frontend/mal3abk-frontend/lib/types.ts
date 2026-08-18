@@ -87,6 +87,8 @@ export interface Booking {
   duration: number;
   totalPrice: number;
   amount?: number; // Alternative to totalPrice
+  discountType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
   // Persisted backend status only. "checked_in" is derived in the UI from attendance fields.
   status: BookingStatus;
   paymentStatus: "pending" | "paid" | "refunded";

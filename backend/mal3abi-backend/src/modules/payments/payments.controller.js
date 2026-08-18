@@ -32,16 +32,25 @@ export async function handlePaymobWebhook(req, res) {
     const receivedHmac = req.query.hmac;
     const webhookResult = await handlePaymobWebhookService(req.body, receivedHmac);
 
-    // Always respond 200 to Paymob to acknowledge receipt
+    if (!webhookResult.success) {
+      // Invalid or malformed callbacks are safely ignored after verification so
+      // Paymob does not retry an unauthenticated payload indefinitely.
+      return res.status(200).json({
+        received: false,
+        processed: false,
+        reason: webhookResult.reason,
+      });
+    }
+
     res.status(200).json({
       received: true,
-      processed: webhookResult.success,
+      processed: true,
     });
   } catch (error) {
-    // Log error internally and acknowledge receipt
+    // Log error internally and return 500 so Paymob retries the webhook delivery
     console.error("Paymob Webhook Error:", error);
-    res.status(200).json({
-      received: true,
+    res.status(500).json({
+      received: false,
       error: "INTERNAL_PROCESSING_ERROR",
     });
   }
@@ -56,10 +65,7 @@ export async function getPaymentStatus(req, res, next) {
     const { transactionId } = req.query; // Accept transactionId from frontend URL
     const result = await getPaymentStatusService(bookingId, req.user, transactionId);
 
-    res.status(200).json({
-      ok: true,
-      data: result,
-    });
+    res.status(200).json(result);
   } catch (error) {
     next(error);
   }
