@@ -10,6 +10,7 @@ import {
   lookupManualBookingCustomerByPhone,
   listBookings,
   getBooking,
+  getBookingHoldStatus,
   updateBooking,
   cancelBooking,
   checkInBooking,
@@ -67,6 +68,7 @@ const verifyLimiter = createRateLimiter(BOOKING_VERIFY_RATE_LIMIT_CONFIG);
 router.get("/", validate(listBookingsSchema, "query"), listBookings);
 router.get("/availability", validate(availabilityQuerySchema, "query"), getBookedSlots);
 router.get("/:bookingId", getBooking);
+router.get("/:bookingId/hold-status", getBookingHoldStatus);
 
 router.post("/", validate(createBookingSchema), createBooking);
 router.post("/manual", validate(createManualBookingSchema), createManualBooking);

@@ -144,6 +144,8 @@ model User {
   actedNotifications               Notification[]              @relation("NotificationActor")
   sessions                         Session[]
   payments                         Payment[]
+  createdCoupons                   Coupon[]                    @relation("CouponCreator")
+  couponRedemptions                CouponRedemption[]
 
   deletedAt              DateTime?
   passwordResetTokenHash String?
@@ -287,6 +289,7 @@ model Court {
   closures          CourtClosure[]
   tournamentCourts  TournamentCourt[]
   tournamentMatches TournamentMatch[]
+  coupons           Coupon[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -311,6 +314,7 @@ model Booking {
   amount                            Decimal       @db.Decimal(10, 2)
   discountType                      String?
   discountValue                     Decimal?      @db.Decimal(10, 2)
+  couponId                          String?
   status                            BookingStatus @default(confirmed)
   paymentStatus                     PaymentStatus @default(pending)
   paymentMethod                     String?
@@ -323,9 +327,11 @@ model Booking {
   createdAt                         DateTime      @default(now())
   updatedAt                         DateTime      @updatedAt
 
-  court    Court     @relation(fields: [courtId], references: [id])
-  user     User      @relation(fields: [userId], references: [id])
-  payments Payment[]
+  court             Court              @relation(fields: [courtId], references: [id])
+  user              User               @relation(fields: [userId], references: [id])
+  coupon            Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  payments          Payment[]
+  couponRedemptions CouponRedemption[]
 
   @@index([courtId, date])
   @@index([courtId, date, status])
@@ -539,3 +545,54 @@ model TournamentMatch {
   @@index([courtId])
   @@index([status])
 }
+
+model Coupon {
+  id                String             @id @default(uuid())
+  code              String             @unique
+  description       String?
+  discountType      String             // "percentage" | "fixed"
+  discountValue     Decimal            @db.Decimal(10, 2)
+  minBookingAmount  Decimal?           @db.Decimal(10, 2)
+  maxDiscountCap    Decimal?           @db.Decimal(10, 2)
+  maxUses           Int?
+  usedCount         Int                @default(0)
+  maxUsesPerUser    Int?               @default(1)
+  startDate         DateTime?          @default(now())
+  expiresAt         DateTime?
+  isActive          Boolean            @default(true)
+
+  courtId           String?
+  court             Court?             @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  createdById       String
+  createdBy         User               @relation("CouponCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  bookings          Booking[]
+  redemptions       CouponRedemption[]
+
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([code, isActive])
+  @@index([courtId])
+  @@index([createdById])
+  @@index([expiresAt])
+}
+
+model CouponRedemption {
+  id             String   @id @default(uuid())
+  couponId       String
+  userId         String
+  bookingId      String?
+  discountAmount Decimal  @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+
+  coupon         Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking        Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([couponId, userId])
+  @@index([userId])
+  @@index([bookingId])
+}
+

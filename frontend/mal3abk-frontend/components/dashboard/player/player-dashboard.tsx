@@ -15,6 +15,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  Timer,
   CreditCard,
   Smartphone,
   Crown,
@@ -650,6 +651,7 @@ export function PlayerDashboard() {
   }, [refreshUser])
 
   const [bookings, setBookingsState] = useState<any[]>([])
+  const [activeHoldBooking, setActiveHoldBooking] = useState<any | null>(null)
   const [favoriteCount, setFavoriteCount] = useState<number | null>(null)
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null)
   const [qrDialogOpen, setQrDialogOpen] = useState(false)
@@ -659,6 +661,23 @@ export function PlayerDashboard() {
   const [upcomingTotalPages, setUpcomingTotalPages] = useState(1)
 
   const ArrowIcon = direction === "rtl" ? ArrowLeft : ArrowRight
+
+  const loadPendingHoldsFromApi = useCallback(async () => {
+    try {
+      const res = await listBookingsApi({
+        mine: true,
+        status: "pending" as any,
+        limit: 5,
+      })
+      const now = Date.now()
+      const activeHold = (res.items || []).find(
+        (b) => b.expiresAt && new Date(b.expiresAt).getTime() > now,
+      )
+      setActiveHoldBooking(activeHold || null)
+    } catch {
+      setActiveHoldBooking(null)
+    }
+  }, [])
 
   const loadBookingsFromApi = useCallback(async () => {
     try {
@@ -692,7 +711,7 @@ export function PlayerDashboard() {
   const handleCancelBooking = async (bookingId: string) => {
     try {
       await cancelBookingApi(bookingId, { lang: language })
-      await Promise.all([loadBookingsFromApi(), safeRefreshUser()])
+      await Promise.all([loadBookingsFromApi(), loadPendingHoldsFromApi(), safeRefreshUser()])
       toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled")
       setDetailsDialogOpen(false)
     } catch (error: any) {
@@ -703,10 +722,11 @@ export function PlayerDashboard() {
   useEffect(() => {
     void Promise.all([
       loadBookingsFromApi(),
+      loadPendingHoldsFromApi(),
       loadFavoritesFromApi(),
       safeRefreshUser(),
     ])
-  }, [loadBookingsFromApi, loadFavoritesFromApi, safeRefreshUser])
+  }, [loadBookingsFromApi, loadPendingHoldsFromApi, loadFavoritesFromApi, safeRefreshUser])
 
   const upcomingBookings = bookings
   const totalPages = upcomingTotalPages
@@ -744,6 +764,51 @@ export function PlayerDashboard() {
   return (
     <PageTransition>
     <div className="space-y-8 sm:space-y-6">
+      {/* Active Reservation Hold Alert Banner */}
+      {activeHoldBooking && (
+        <AnimatedContainer animation="slide-up" delay={0.02}>
+          <Card className="border-2 border-amber-500/40 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-amber-500/10 shadow-lg shadow-amber-500/5 overflow-hidden">
+            <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="h-11 w-11 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0 animate-pulse">
+                  <Timer className="h-6 w-6" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm sm:text-base text-foreground truncate">
+                      {language === "ar"
+                        ? activeHoldBooking.courtName
+                        : activeHoldBooking.courtNameEn || activeHoldBooking.courtName}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10 text-xs font-mono"
+                    >
+                      {language === "ar" ? "حجز مؤقت بانتظار الدفع" : "Hold Awaiting Payment"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {language === "ar"
+                      ? "الملعب محجوز حصرياً لك الآن، يرجى إتمام الدفع قبل انتهاء صلاحية النافذة."
+                      : "The court is held exclusively for you. Complete payment before the window expires."}
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                asChild
+                className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-semibold gap-1.5 shadow-md w-full sm:w-auto"
+              >
+                <Link href={`/dashboard/player/bookings/${activeHoldBooking.id}/hold`}>
+                  <CreditCard className="h-4 w-4" />
+                  {language === "ar" ? "إتمام الدفع الآن" : "Complete Payment Now"}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </AnimatedContainer>
+      )}
+
       {/* Hero / Top header */}
       <AnimatedContainer animation="slide-up" delay={0.05}>
         <Card className="relative overflow-hidden border-2 border-border/50 bg-card/90 sm:bg-card/55 sm:backdrop-blur-xl

@@ -57,6 +57,7 @@ export const createBookingSchema = Joi.object({
   startTime: Joi.string().pattern(timeRegex).required(),
   endTime: Joi.string().pattern(timeRegex).required(),
   notes: Joi.string().trim().max(BOOKING_NOTE_MAX_LENGTH).allow("", null),
+  couponCode: Joi.string().trim().uppercase().max(30).allow("", null),
 });
 
 export const createManualBookingSchema = Joi.object({

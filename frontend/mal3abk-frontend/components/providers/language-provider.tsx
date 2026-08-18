@@ -70,6 +70,7 @@ const translations: Translations = {
   "dashboard.favorites": { ar: "المفضلة", en: "Favorites" },
   "dashboard.checkIn": { ar: "تسجيل الحضور", en: "Check-in" },
   "dashboard.tournaments": { ar: "البطولات", en: "Tournaments" },
+  "dashboard.coupons": { ar: "الكوبونات والخصومات", en: "Coupons & Discounts" },
   "dashboard.upcomingBookings": { ar: "الحجوزات القادمة", en: "Upcoming Bookings" },
   "dashboard.bookingHistory": { ar: "سجل الحجوزات", en: "Booking History" },
 
