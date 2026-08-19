@@ -94,6 +94,38 @@ function assertValidPeakHours(peakStartTime, peakEndTime) {
   }
 }
 
+function assertValidDepositPolicy(data = {}, fallback = {}) {
+  const allowOnlinePayment = data.allowOnlinePayment ?? fallback.allowOnlinePayment ?? true;
+  const paymentPolicy = data.paymentPolicy ?? fallback.paymentPolicy ?? "full";
+  const depositValue = Number(data.depositValue ?? fallback.depositValue ?? 0);
+
+  if (!allowOnlinePayment || paymentPolicy === "full") return;
+
+  if (!Number.isFinite(depositValue) || depositValue <= 0) {
+    const err = new Error("Deposit value must be greater than 0.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (paymentPolicy === "percentage" && depositValue > 100) {
+    const err = new Error("Deposit percentage cannot exceed 100%.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (paymentPolicy === "fixed") {
+    const peakPrice = Number(data.peakPrice ?? fallback.peakPrice ?? 0);
+    const offPeakPrice = Number(data.offPeakPrice ?? fallback.offPeakPrice ?? 0);
+    const maximumFixedDeposit = Math.min(peakPrice, offPeakPrice);
+
+    if (depositValue > maximumFixedDeposit) {
+      const err = new Error(`Fixed deposit cannot exceed the court's lowest full price (${maximumFixedDeposit} EGP).`);
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+}
+
 function fmtMinutes(m) {
   const normalizedMinutes = ((m % 1440) + 1440) % 1440;
   const hh = Math.floor(normalizedMinutes / 60);
@@ -683,6 +715,7 @@ export async function createCourtService(payload, currentUser) {
   const closeTime = payload.closeTime || "23:00";
   assertValidHours(openTime, closeTime);
   assertValidPeakHours(payload.peakStartTime || "18:00", payload.peakEndTime || "06:00");
+  assertValidDepositPolicy(payload);
 
   const managerId =
     currentUser.role === "manager"
@@ -866,6 +899,7 @@ export async function updateCourtService(id, payload, currentUser) {
   const safePayload = { ...payload };
   if (currentUser.role === "manager") delete safePayload.managerId;
   if (safePayload.managerId) await assertManagerAssignment(safePayload.managerId);
+  assertValidDepositPolicy(safePayload, existing);
   const nextStatus = safePayload.status ?? existing.status;
   if (nextStatus !== "active" && nextStatus !== existing.status) {
     await assertNoScheduledTournamentMatchesOnCourt(id);

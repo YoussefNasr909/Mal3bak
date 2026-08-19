@@ -9,6 +9,8 @@ import {
   Copy,
   CheckCircle2,
   Hash,
+  CreditCard,
+  RotateCcw,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -46,6 +48,7 @@ interface BookingDetailsDialogProps {
   getStatusLabel: (status: string) => string
   formatDate: (date: string | Date) => string
   onCheckIn: (booking: Booking) => void
+  onRefund?: (booking: Booking) => void
   t: (key: string) => string
 }
 
@@ -59,6 +62,7 @@ export const BookingDetailsDialog = memo(function BookingDetailsDialog({
   getStatusLabel,
   formatDate,
   onCheckIn,
+  onRefund,
   t,
 }: BookingDetailsDialogProps) {
   const isAr = language === "ar"
@@ -193,6 +197,43 @@ export const BookingDetailsDialog = memo(function BookingDetailsDialog({
             />
           </BookingDetailsSection>
         ) : null}
+
+        {booking.paymentStatus === "paid" && (
+          <BookingDetailsSection title={isAr ? "الدفع الإلكتروني (Paymob)" : "Online Payment (Paymob)"}>
+            <BookingDetailsRow
+              icon={<CreditCard className="h-4 w-4 text-emerald-500" />}
+              label={isAr ? "حالة الدفع" : "Payment Status"}
+              value={
+                <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
+                  {isAr ? "مدفوع أونلاين" : "Paid Online"}
+                </Badge>
+              }
+            />
+            {booking.latestPayment?.paymobTransactionId && (
+              <BookingDetailsRow
+                icon={<Hash className="h-4 w-4" />}
+                label={isAr ? "رقم المعاملة" : "Tx ID"}
+                value={<span className="font-mono">{booking.latestPayment.paymobTransactionId}</span>}
+              />
+            )}
+            {onRefund && (
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full rounded-xl border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 font-bold gap-2"
+                  onClick={() => {
+                    onOpenChange(false)
+                    onRefund(booking)
+                  }}
+                >
+                  <RotateCcw className="h-4 w-4 text-amber-500" />
+                  {isAr ? "إصدار استرداد مالي (Refund)" : "Issue Refund"}
+                </Button>
+              </div>
+            )}
+          </BookingDetailsSection>
+        )}
 
         {hasBookingNote(booking.notes) ? (
           <BookingDetailsSection title={isAr ? "ملاحظة" : "Note"}>

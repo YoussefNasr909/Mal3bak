@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertCircle,
   CalendarDays,
+  RotateCcw,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -299,6 +300,16 @@ export const BookingTableView = memo(function BookingTableView({
                                 >
                                   <Ban className="me-2 h-4 w-4" />
                                   {language === "ar" ? "إلغاء الحجز" : "Cancel Booking"}
+                                </DropdownMenuItem>
+                              )}
+
+                              {booking.paymentStatus === "paid" && (
+                                <DropdownMenuItem
+                                  onClick={() => onBookingAction(booking, "refund")}
+                                  className="text-amber-600 dark:text-amber-400 focus:text-amber-600 font-medium"
+                                >
+                                  <RotateCcw className="me-2 h-4 w-4" />
+                                  {language === "ar" ? "إصدار استرداد مالي" : "Issue Refund"}
                                 </DropdownMenuItem>
                               )}
                           </DropdownMenuContent>

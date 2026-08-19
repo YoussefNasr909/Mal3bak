@@ -178,7 +178,7 @@ describe("CourtDetailsPage", () => {
     if (timeSlot) fireEvent.click(timeSlot);
 
     // Expected an element showing "Confirm" or similar
-    const confirmButton = await screen.findByRole("button", { name: /bookings.confirmBooking/i });
+    const confirmButton = await screen.findByRole("button", { name: /Book \(Pay Later\)/i });
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
@@ -208,7 +208,7 @@ describe("CourtDetailsPage", () => {
       target: { value: "  Please keep the same side court.  " },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /bookings.confirmBooking/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Book \(Pay Later\)/i }));
 
     await waitFor(() => {
       expect(api.createBooking).toHaveBeenCalledWith(

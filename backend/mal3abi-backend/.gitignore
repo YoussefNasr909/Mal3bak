@@ -1,18 +1,23 @@
-node_modules
+node_modules/
+.npm-cache/
 
 # Keep environment variables out of version control
 .env
 .env.local
+.env.test
 .env.*.local
 
 # Prisma generated client
 /generated/prisma
+node_modules/.prisma/
 
-# Build artifacts & logs
+# Build artifacts, coverage & logs
 dist/
 build/
+coverage/
 *.log
 npm-debug.log*
+*.tmp*
 
 # Editor directories and files
 .DS_Store

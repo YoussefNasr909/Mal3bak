@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Users,
+  RotateCcw,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -199,6 +200,16 @@ export const BookingListView = memo(function BookingListView({
                                 >
                                   <Ban className="me-2 h-4 w-4" />
                                   {text.cancelBooking}
+                                </DropdownMenuItem>
+                              ) : null}
+
+                              {booking.paymentStatus === "paid" ? (
+                                <DropdownMenuItem
+                                  onClick={() => onBookingAction(booking, "refund")}
+                                  className="text-amber-600 dark:text-amber-400 focus:text-amber-600 font-medium"
+                                >
+                                  <RotateCcw className="me-2 h-4 w-4" />
+                                  {language === "ar" ? "إصدار استرداد مالي" : "Issue Refund"}
                                 </DropdownMenuItem>
                               ) : null}
                             </DropdownMenuContent>

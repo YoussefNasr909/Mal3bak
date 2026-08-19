@@ -709,6 +709,22 @@ const RevenueBookingMobileRow = memo(function RevenueBookingMobileRow({
               ? labels.refunded
               : labels.pending}
         </StatusBadge>
+        {booking.paymentStatus === "paid" && (booking.court?.paymentPolicy === "percentage" || booking.court?.paymentPolicy === "fixed") && (
+          <Badge
+            variant="outline"
+            className="rounded-full border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600 dark:text-amber-400 font-bold"
+          >
+            {language === "ar" ? "عربون" : "Deposit"}
+          </Badge>
+        )}
+        {booking.latestPayment?.paymobTransactionId && (
+          <Badge
+            variant="secondary"
+            className="rounded-full bg-primary/10 text-primary text-[10px] font-mono px-2 py-0.5"
+          >
+            Tx #{booking.latestPayment.paymobTransactionId}
+          </Badge>
+        )}
         <StatusBadge variant={getBookingStatusVariant(booking.status)} dot>
           {booking.status === "completed" ? labels.completed : labels.confirmed}
         </StatusBadge>
@@ -1579,13 +1595,30 @@ export function RevenueReportPage({ mode }: { mode: RevenuePageMode }) {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <StatusBadge variant={getPaymentBadgeVariant(booking.paymentStatus)} dot>
-                            {booking.paymentStatus === "paid"
-                              ? labels.paid
-                              : booking.paymentStatus === "refunded"
-                                ? labels.refunded
-                                : labels.pending}
-                          </StatusBadge>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <StatusBadge variant={getPaymentBadgeVariant(booking.paymentStatus)} dot>
+                                {booking.paymentStatus === "paid"
+                                  ? labels.paid
+                                  : booking.paymentStatus === "refunded"
+                                    ? labels.refunded
+                                    : labels.pending}
+                              </StatusBadge>
+                              {booking.paymentStatus === "paid" && (booking.court?.paymentPolicy === "percentage" || booking.court?.paymentPolicy === "fixed") && (
+                                <Badge
+                                  variant="outline"
+                                  className="rounded-full border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-600 dark:text-amber-400 font-bold"
+                                >
+                                  {language === "ar" ? "عربون" : "Deposit"}
+                                </Badge>
+                              )}
+                            </div>
+                            {booking.latestPayment?.paymobTransactionId && (
+                              <span className="text-[10px] font-mono text-muted-foreground">
+                                Tx #{booking.latestPayment.paymobTransactionId}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <StatusBadge variant={getBookingStatusVariant(booking.status)} dot>

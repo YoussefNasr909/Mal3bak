@@ -8,6 +8,7 @@ import {
   Search,
   Calendar,
   Clock,
+  CreditCard,
   Ticket,
   History,
   MapPin,
@@ -24,8 +25,10 @@ import {
   QrCode,
   Zap,
   Loader2,
+  Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PaymentReceiptModal } from "@/components/dashboard/player/payment-receipt-modal";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -275,6 +278,8 @@ export function PlayerBookingsPage() {
   // dialogs
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptBooking, setReceiptBooking] = useState<BookingWithCode | null>(null);
 
   const [selectedBooking, setSelectedBooking] =
     useState<BookingWithCode | null>(null);
@@ -306,7 +311,9 @@ export function PlayerBookingsPage() {
       };
 
       if (debouncedSearch.trim()) params.q = debouncedSearch.trim();
-      if (statusFilter !== "all" && statusFilter !== "paid") {
+      if (statusFilter === "paid") {
+        params.paymentStatus = "paid";
+      } else if (statusFilter !== "all") {
         params.status = statusFilter;
       }
 
@@ -555,9 +562,7 @@ export function PlayerBookingsPage() {
     [searchQuery],
   );
 
-  const filteredBookings = statusFilter === "paid"
-    ? bookings.filter((b) => (b as any).paymentStatus === "paid")
-    : bookings;
+  const filteredBookings = bookings;
   const sortedBookings = filteredBookings;
   const paginatedBookings = filteredBookings;
 
@@ -613,6 +618,25 @@ export function PlayerBookingsPage() {
       }
       return null;
     }
+    if (status === "pending") {
+      const isHoldActive = Boolean(
+        booking?.expiresAt && new Date(booking.expiresAt).getTime() > Date.now(),
+      );
+      if (isHoldActive) {
+        return {
+          icon: Timer,
+          color: "text-amber-600 dark:text-amber-400",
+          bg: "bg-amber-500/10",
+          label: { ar: "بانتظار الدفع", en: "Awaiting Payment" },
+        };
+      }
+      return {
+        icon: AlertCircle,
+        color: "text-amber-600 dark:text-amber-400",
+        bg: "bg-amber-500/10",
+        label: { ar: "قيد الانتظار", en: "Pending" },
+      };
+    }
     const configs: Record<
       string,
       {
@@ -651,13 +675,21 @@ export function PlayerBookingsPage() {
 
   const handleCancelBooking = async (bookingId: string) => {
     try {
-      await cancelBookingApi(bookingId, { lang: language });
+      const res = await cancelBookingApi(bookingId, { lang: language }) as any;
       await Promise.all([
         loadBookingsFromApi(),
         loadAllBookingsForStats(),
         refreshUser().catch(() => null),
       ]);
-      toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled");
+      if (res?.message) {
+        if (res.refundIssued) {
+          toast.success(res.message, { duration: 6000 });
+        } else {
+          toast.info(res.message, { duration: 5000 });
+        }
+      } else {
+        toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled");
+      }
       setDetailsOpen(false);
     } catch (error: any) {
       toast.error(
@@ -671,6 +703,7 @@ export function PlayerBookingsPage() {
 
   const handlePaymobPayForBooking = async (bookingId: string) => {
     if (isPayingPaymob) return;
+    setIsPayingPaymob(false); // Reset immediately to allow retry
     setIsPayingPaymob(true);
 
     try {
@@ -678,18 +711,59 @@ export function PlayerBookingsPage() {
         bookingId,
       });
 
+      if (!sessionData?.checkoutUrl) {
+        throw new Error("No checkout URL received from server");
+      }
+
       toast.loading(language === "ar" ? "جاري التحويل لصفحة باي موب..." : "Redirecting to Paymob...");
       window.location.href = sessionData.checkoutUrl;
     } catch (e: any) {
-      toast.error(
-        e?.message ||
-          (language === "ar"
-            ? "فشل بدء عملية الدفع عبر باي موب"
-            : "Paymob payment initiation failed"),
-      );
+      console.error("Payment initiation error:", e);
+      
+      let errorMessage = language === "ar"
+        ? "فشل بدء عملية الدفع عبر باي موب"
+        : "Paymob payment initiation failed";
+
+      // Provide more specific error messages
+      if (e?.status === 401) {
+        errorMessage = language === "ar"
+          ? "انتهت صلاحية جلستك. يرجى تسجيل الدخول مجددا"
+          : "Session expired. Please log in again";
+      } else if (e?.status === 403) {
+        errorMessage = language === "ar"
+          ? "ليس لديك صلاحية لهذه العملية"
+          : "You don't have permission for this action";
+      } else if (e?.status === 404) {
+        errorMessage = language === "ar"
+          ? "الحجز غير موجود"
+          : "Booking not found";
+      } else if (e?.name === "NetworkError") {
+        errorMessage = language === "ar"
+          ? "خطأ في الاتصال. تأكد من اتصالك بالإنترنت"
+          : "Connection error. Check your internet connection";
+      } else if (e?.message) {
+        errorMessage = e.message;
+      }
+
+      toast.error(errorMessage);
       setIsPayingPaymob(false);
     }
   };
+
+  // Auto-refresh bookings when user returns from payment (visibility change)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      // Refresh bookings when user returns to the page
+      if (document.visibilityState === "visible") {
+        loadBookingsFromApi();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [loadBookingsFromApi]);
 
   return (
     <div className="space-y-6">
@@ -1074,7 +1148,7 @@ export function PlayerBookingsPage() {
                               <div className="mt-3 flex flex-wrap items-center gap-4">
                                 <div className="flex items-center gap-2">
                                   <span className="text-lg sm:text-xl font-bold text-foreground">
-                                    {(booking.amount as any) || 0}
+                                    {Number(booking.totalPrice ?? booking.amount ?? 0).toLocaleString()}
                                   </span>
                                   <span className="text-muted-foreground">
                                     {t("common.egp")}
@@ -1113,6 +1187,21 @@ export function PlayerBookingsPage() {
                                 {language === "ar" ? "تفاصيل" : "Details"}
                               </Button>
 
+                              {booking.status === "pending" && (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="rounded-xl gap-1.5 flex-1 sm:flex-none bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/dashboard/player/bookings/${booking.id}/hold`);
+                                  }}
+                                >
+                                  <CreditCard className="h-4 w-4" />
+                                  {language === "ar" ? "إتمام الدفع" : "Complete Payment"}
+                                </Button>
+                              )}
+
                               {booking.status === "confirmed" &&
                                 booking.checkInCode && (
                                   <Button
@@ -1128,6 +1217,22 @@ export function PlayerBookingsPage() {
                                     {language === "ar" ? "الكود" : "Code"}
                                   </Button>
                                 )}
+
+                              {booking.paymentStatus === "paid" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-xl gap-1.5 flex-1 sm:flex-none border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 font-semibold shadow-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReceiptBooking(booking);
+                                    setReceiptModalOpen(true);
+                                  }}
+                                >
+                                  <Receipt className="h-4 w-4 text-emerald-500" />
+                                  {language === "ar" ? "الإيصال" : "Receipt"}
+                                </Button>
+                              )}
                               {canCancelListItem && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
@@ -1148,10 +1253,24 @@ export function PlayerBookingsPage() {
                                           ? "إلغاء الحجز"
                                           : "Cancel Booking"}
                                       </AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        {language === "ar"
-                                          ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
-                                          : "Are you sure you want to cancel this booking?"}
+                                      <AlertDialogDescription className="space-y-2 text-start">
+                                        <span>
+                                          {language === "ar"
+                                            ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
+                                            : "Are you sure you want to cancel this booking?"}
+                                        </span>
+                                        {booking.paymentStatus === "paid" && (
+                                          <span className="block mt-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                            <strong className="block font-bold mb-1">
+                                              {language === "ar" ? "ℹ️ سياسة الاسترداد (24 ساعة):" : "ℹ️ 24h Auto-Refund Policy:"}
+                                            </strong>
+                                            <span className="block text-[11px] leading-relaxed opacity-90">
+                                              {language === "ar"
+                                                ? "الإلغاء قبل أكثر من 24 ساعة من المباراة يسترد المبلغ تلقائياً إلى بطاقتك البنكية. الإلغاء قبل أقل من 24 ساعة غير قابل للاسترداد وفقاً لسياسة الملعب."
+                                                : "Cancellations > 24h before match start receive an automatic refund to your card. Cancellations within 24h are non-refundable per venue policy."}
+                                            </span>
+                                          </span>
+                                        )}
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -1415,10 +1534,10 @@ export function PlayerBookingsPage() {
 
                       <div className="mt-3 flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
-                          {language === "ar" ? "المبلغ" : "Amount"}
+                          {language === "ar" ? "السعر الكامل" : "Full price"}
                         </span>
                         <span className="font-extrabold">
-                          {(selectedBooking.amount as any) || 0}{" "}
+                          {Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0).toLocaleString()}{" "}
                           {t("common.egp")}
                         </span>
                       </div>
@@ -1475,21 +1594,42 @@ export function PlayerBookingsPage() {
                       </div>
                     </div>
                     {selectedBooking.paymentStatus === "paid" && (() => {
-                      const policy = (selectedBooking as any).court?.paymentPolicy ?? "full";
-                      const isDeposit = policy === "percentage" || policy === "fixed";
+                      const total = Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0);
+                      const paidPayment = selectedBooking.payments?.find((payment) => payment.status === "paid")
+                        || (selectedBooking.latestPayment?.status === "paid" ? selectedBooking.latestPayment : null);
+                      const paidOnlineAmount = Number(paidPayment?.amount ?? selectedBooking.amount ?? total);
+                      const remainingAtVenue = Math.max(0, Math.round((total - paidOnlineAmount) * 100) / 100);
+                      const isDeposit = paidOnlineAmount < total;
                       return (
-                        <div className={`w-full rounded-xl py-3 flex flex-col items-center justify-center gap-1 font-semibold border ${isDeposit ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"}`}>
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 className="h-5 w-5" />
-                            {isDeposit
-                              ? (language === "ar" ? "تم دفع العربون" : "Deposited")
-                              : (language === "ar" ? "تم الدفع أونلاين" : "Paid Online")}
+                        <div className="space-y-2 w-full">
+                          <div className={`w-full rounded-xl py-3 flex flex-col items-center justify-center gap-1 font-semibold border ${isDeposit ? "bg-amber-500/10 border-amber-500/20 text-amber-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"}`}>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="h-5 w-5" />
+                              {isDeposit
+                                ? (language === "ar" ? "تم دفع العربون" : "Deposited")
+                                : (language === "ar" ? "تم الدفع أونلاين" : "Paid Online")}
+                            </div>
+                            {isDeposit && (
+                              <p className="text-xs font-normal opacity-80 text-center">
+                                {language === "ar"
+                                  ? `تم دفع ${paidOnlineAmount} ج.م أونلاين، والمتبقي ${remainingAtVenue} ج.م في الملعب`
+                                  : `Paid ${paidOnlineAmount} EGP online; ${remainingAtVenue} EGP remains at the venue`}
+                              </p>
+                            )}
                           </div>
-                          {isDeposit && (
-                            <p className="text-xs font-normal opacity-80 text-center">
-                              {language === "ar" ? "يرجى دفع المبلغ المتبقي عند الملعب" : "Pay the remaining balance up-front at the court"}
-                            </p>
-                          )}
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full rounded-xl gap-2 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 font-bold py-2.5 shadow-sm"
+                            onClick={() => {
+                              setReceiptBooking(selectedBooking);
+                              setReceiptModalOpen(true);
+                            }}
+                          >
+                            <Receipt className="h-4 w-4 text-emerald-500" />
+                            {language === "ar" ? "عرض وتحميل إيصال الدفع" : "View & Download Payment Receipt"}
+                          </Button>
                         </div>
                       );
                     })()}
@@ -1512,7 +1652,7 @@ export function PlayerBookingsPage() {
                             const depositVal = Number((selectedBooking as any).court?.depositValue ?? 0)
                             const total = Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0)
                             if (policy === "percentage" && depositVal > 0) {
-                              const due = Math.round((total * depositVal) / 100)
+                              const due = Math.round(((total * depositVal) / 100) * 100) / 100
                               return language === "ar"
                                 ? `ادفع عربون ${depositVal}% (${due} ج.م)`
                                 : `Pay ${depositVal}% Deposit (${due} EGP)`
@@ -1549,10 +1689,24 @@ export function PlayerBookingsPage() {
                                 ? "إلغاء الحجز"
                                 : "Cancel Booking"}
                             </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {language === "ar"
-                                ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
-                                : "Are you sure you want to cancel this booking?"}
+                            <AlertDialogDescription className="space-y-2 text-start">
+                              <span>
+                                {language === "ar"
+                                  ? "هل أنت متأكد من رغبتك في إلغاء هذا الحجز؟"
+                                  : "Are you sure you want to cancel this booking?"}
+                              </span>
+                              {selectedBooking.paymentStatus === "paid" && (
+                                <span className="block mt-2 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                  <strong className="block font-bold mb-1">
+                                    {language === "ar" ? "ℹ️ سياسة الاسترداد (24 ساعة):" : "ℹ️ 24h Auto-Refund Policy:"}
+                                  </strong>
+                                  <span className="block text-[11px] leading-relaxed opacity-90">
+                                    {language === "ar"
+                                      ? "الإلغاء قبل أكثر من 24 ساعة من المباراة يسترد المبلغ تلقائياً إلى بطاقتك البنكية. الإلغاء قبل أقل من 24 ساعة غير قابل للاسترداد وفقاً لسياسة الملعب."
+                                      : "Cancellations > 24h before match start receive an automatic refund to your card. Cancellations within 24h are non-refundable per venue policy."}
+                                  </span>
+                                </span>
+                              )}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -1658,6 +1812,16 @@ export function PlayerBookingsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Payment Receipt Modal */}
+      <PaymentReceiptModal
+        booking={receiptBooking || selectedBooking}
+        open={receiptModalOpen}
+        onOpenChange={(open) => {
+          setReceiptModalOpen(open);
+          if (!open) setReceiptBooking(null);
+        }}
+      />
 
     </div>
   );

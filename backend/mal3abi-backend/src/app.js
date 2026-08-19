@@ -12,6 +12,7 @@ import notificationsRoutes from "./modules/notifications/notifications.routes.js
 import notificationPreferencesRoutes from "./modules/notifications/notification-preferences.routes.js";
 import pushSubscriptionsRoutes from "./modules/notifications/push-subscriptions.routes.js";
 import paymentsRoutes from "./modules/payments/payments.routes.js";
+import couponsRoutes from "./modules/coupons/coupons.routes.js";
 import { allowedOrigins } from "./config/cors.js";
 import { csrfProtection } from "./middleware/csrf.js";
 import { createRateLimiter, GLOBAL_RATE_LIMIT_CONFIG } from "./utils/rateLimit.js";
@@ -59,5 +60,6 @@ app.use("/api/v1/notifications", notificationsRoutes);
 app.use("/api/v1/notification-preferences", notificationPreferencesRoutes);
 app.use("/api/v1/push-subscriptions", pushSubscriptionsRoutes);
 app.use("/api/v1/payments", paymentsRoutes);
+app.use("/api/v1/coupons", couponsRoutes);
 
 app.use(errorHandler);

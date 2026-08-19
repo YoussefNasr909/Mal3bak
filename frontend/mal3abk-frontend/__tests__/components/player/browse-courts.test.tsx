@@ -174,7 +174,7 @@ describe("BrowseCourtsPage", () => {
       target: { value: "  Please call when the slot is ready.  " },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /confirm booking/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Book \(Pay Later\)/i }));
 
     await waitFor(() => {
       expect(api.createBooking).toHaveBeenCalledWith(

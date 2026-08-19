@@ -434,6 +434,66 @@ describe("Bookings Flow", () => {
     expect(res.body.booking.paymentStatus).toBe("paid"); // manual defaults to paid
   });
 
+  it("should apply percentage and fixed discounts to manual bookings", async () => {
+    const date = getTomorrowDateStr();
+    const percentageRes = await request(app)
+      .post("/api/v1/bookings/manual")
+      .set("Origin", origin)
+      .set("Cookie", [managerToken])
+      .send({
+        courtId,
+        date,
+        startTime: "09:00",
+        endTime: "10:00",
+        guestName: "Percentage Discount Guest",
+        guestPhone: "01099999998",
+        discountType: "percentage",
+        discountValue: 100,
+      });
+
+    expect(percentageRes.status).toBe(201);
+    expect(percentageRes.body.booking.totalPrice).toBe(0);
+    expect(percentageRes.body.booking.discountType).toBe("percentage");
+    expect(percentageRes.body.booking.discountValue).toBe(100);
+
+    const fixedRes = await request(app)
+      .post("/api/v1/bookings/manual")
+      .set("Origin", origin)
+      .set("Cookie", [managerToken])
+      .send({
+        courtId,
+        date,
+        startTime: "10:00",
+        endTime: "11:00",
+        guestName: "Fixed Discount Guest",
+        guestPhone: "01099999997",
+        discountType: "fixed",
+        discountValue: 80,
+      });
+
+    expect(fixedRes.status).toBe(201);
+    expect(fixedRes.body.booking.totalPrice).toBe(0);
+    expect(fixedRes.body.booking.discountType).toBe("fixed");
+    expect(fixedRes.body.booking.discountValue).toBe(80);
+
+    const excessiveRes = await request(app)
+      .post("/api/v1/bookings/manual")
+      .set("Origin", origin)
+      .set("Cookie", [managerToken])
+      .send({
+        courtId,
+        date,
+        startTime: "11:00",
+        endTime: "12:00",
+        guestName: "Excessive Discount Guest",
+        guestPhone: "01099999996",
+        discountType: "fixed",
+        discountValue: 80.01,
+      });
+
+    expect(excessiveRes.status).toBe(400);
+  });
+
   it("filters manager bookings by walk-in guests and returns guest vs registered counts", async () => {
     const date = getTomorrowDateStr();
 
@@ -514,7 +574,7 @@ describe("Bookings Flow", () => {
     expect(res.body.booking.status).toBe("cancelled");
   });
 
-  it("should block a player from cancelling within 6 hours of the booking start", async () => {
+  it("should block a player from cancelling within 2 hours of the booking start", async () => {
     const createRes = await request(app).post("/api/v1/bookings").set("Origin", origin).set("Cookie", [playerToken]).send({
       courtId,
       date: getTomorrowDateStr(),
@@ -524,7 +584,7 @@ describe("Bookings Flow", () => {
     expect(createRes.status).toBe(201);
 
     const bookingId = createRes.body.booking.id;
-    await moveBookingToFutureHourSlot(bookingId, 5);
+    await moveBookingToFutureHourSlot(bookingId, 1);
 
     const res = await request(app)
       .post(`/api/v1/bookings/${bookingId}/cancel`)
@@ -532,7 +592,7 @@ describe("Bookings Flow", () => {
       .set("Cookie", [playerToken]);
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/6 hours/i);
+    expect(res.body.message).toMatch(/2 hours/i);
   });
 
   it("should block non-managers from verifying check-in codes", async () => {

@@ -4,6 +4,7 @@ import {
   lookupManualBookingCustomerByPhoneService,
   listBookingsService,
   getBookingService,
+  getBookingHoldStatusService,
   updateBookingService,
   cancelBookingService,
   checkInBookingService,
@@ -89,6 +90,15 @@ export async function getManagerRevenueReport(req, res, next) {
 export async function getBooking(req, res, next) {
   try {
     const result = await getBookingService(req.params.bookingId, req.user);
+    return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getBookingHoldStatus(req, res, next) {
+  try {
+    const result = await getBookingHoldStatusService(req.params.bookingId, req.user);
     return res.json(result);
   } catch (e) {
     next(e);

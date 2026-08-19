@@ -1384,7 +1384,7 @@ export function AdminCourtsPage() {
       displayOrder: Number(formData.displayOrder || 0),
       allowOnlinePayment: formData.allowOnlinePayment,
       paymentPolicy: formData.paymentPolicy,
-      depositValue: formData.depositValue,
+      depositValue: Number(formData.depositValue || 0),
     };
 
     // Only add the ID if we are updating an existing record
@@ -1396,6 +1396,25 @@ export function AdminCourtsPage() {
   };
 
   const createCourt = async () => {
+    if (formData.allowOnlinePayment && formData.paymentPolicy !== "full") {
+      if (!formData.depositValue || formData.depositValue <= 0) {
+        toast.error(language === "ar" ? "يرجى إدخال مبلغ دفع مقدم صحيح (أكبر من 0)" : "Please enter a valid deposit value (greater than 0)");
+        return false;
+      }
+      if (formData.paymentPolicy === "percentage" && formData.depositValue > 100) {
+        toast.error(language === "ar" ? "نسبة الدفع المقدم يجب ألا تتجاوز 100%" : "Deposit percentage cannot exceed 100%");
+        return false;
+      }
+      if (formData.paymentPolicy === "fixed") {
+        const maximumFixedDeposit = Math.min(Number(formData.peakPrice), Number(formData.offPeakPrice));
+        if (formData.depositValue > maximumFixedDeposit) {
+          toast.error(language === "ar"
+            ? `العربون الثابت لا يمكن أن يتجاوز أقل سعر كامل للملعب (${maximumFixedDeposit} ج.م)`
+            : `Fixed deposit cannot exceed the court's lowest full price (${maximumFixedDeposit} EGP)`);
+          return false;
+        }
+      }
+    }
     setIsSaving(true);
     const court = toCourtFromForm();
     try {
@@ -1412,6 +1431,25 @@ export function AdminCourtsPage() {
   };
 
   const updateCourt = async (id: string) => {
+    if (formData.allowOnlinePayment && formData.paymentPolicy !== "full") {
+      if (!formData.depositValue || formData.depositValue <= 0) {
+        toast.error(language === "ar" ? "يرجى إدخال مبلغ دفع مقدم صحيح (أكبر من 0)" : "Please enter a valid deposit value (greater than 0)");
+        return false;
+      }
+      if (formData.paymentPolicy === "percentage" && formData.depositValue > 100) {
+        toast.error(language === "ar" ? "نسبة الدفع المقدم يجب ألا تتجاوز 100%" : "Deposit percentage cannot exceed 100%");
+        return false;
+      }
+      if (formData.paymentPolicy === "fixed") {
+        const maximumFixedDeposit = Math.min(Number(formData.peakPrice), Number(formData.offPeakPrice));
+        if (formData.depositValue > maximumFixedDeposit) {
+          toast.error(language === "ar"
+            ? `العربون الثابت لا يمكن أن يتجاوز أقل سعر كامل للملعب (${maximumFixedDeposit} ج.م)`
+            : `Fixed deposit cannot exceed the court's lowest full price (${maximumFixedDeposit} EGP)`);
+          return false;
+        }
+      }
+    }
     setIsSaving(true);
     try {
       const res = await updateCourtApi(id, toCourtFromForm(selectedCourt || undefined) as any);
@@ -2344,7 +2382,9 @@ export function AdminCourtsPage() {
                         id="admin-deposit-value-input"
                         type="number"
                         min={1}
-                        max={formData.paymentPolicy === "percentage" ? 100 : undefined}
+                        max={formData.paymentPolicy === "percentage"
+                          ? 100
+                          : Math.min(Number(formData.peakPrice), Number(formData.offPeakPrice)) || undefined}
                         value={formData.depositValue || ""}
                         onChange={(e) => setFormData({ ...formData, depositValue: Number(e.target.value) })}
                         placeholder={formData.paymentPolicy === "percentage" ? "e.g. 50" : "e.g. 150"}

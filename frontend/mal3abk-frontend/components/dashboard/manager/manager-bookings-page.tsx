@@ -26,6 +26,7 @@ import {
   updateBooking as updateBookingApi,
   cancelBooking as cancelBookingApi,
   checkInBooking as checkInBookingApi,
+  refundPayment as refundPaymentApi,
 } from "@/lib/api"
 import { AnimatedContainer } from "@/components/ui/animated-container"
 import { toast } from "sonner"
@@ -310,8 +311,19 @@ export function ManagerBookingsPage() {
         await checkInBookingApi(selectedBooking.id)
         toast.success(language === "ar" ? "تم تسجيل الحضور" : "Check-in successful")
       } else if (actionType === "cancel") {
-        await cancelBookingApi(selectedBooking.id, { lang: language })
-        toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled")
+        const res = (await cancelBookingApi(selectedBooking.id, { lang: language })) as any
+        if (res?.message) {
+          toast.success(res.message)
+        } else {
+          toast.success(language === "ar" ? "تم إلغاء الحجز" : "Booking cancelled")
+        }
+      } else if (actionType === "refund") {
+        const res = await refundPaymentApi(selectedBooking.id)
+        toast.success(
+          language === "ar"
+            ? "تم استرداد المبلغ إلى بطاقة اللاعب بنجاح وإلغاء الحجز"
+            : "Payment refunded and booking cancelled successfully"
+        )
       } else if (actionType === "no-show") {
         await updateBookingApi(selectedBooking.id, { status: "no_show" })
         toast.success(language === "ar" ? "تم تسجيل عدم الحضور" : "Marked as missed booking")
@@ -633,6 +645,7 @@ export function ManagerBookingsPage() {
           getStatusLabel={getStatusLabel}
           formatDate={formatDate}
           onCheckIn={(booking) => handleBookingAction(booking, "check-in")}
+          onRefund={(booking) => handleBookingAction(booking, "refund")}
           t={t}
         />
       </Suspense>
@@ -644,19 +657,45 @@ export function ManagerBookingsPage() {
             <DialogTitle className={cn(language === "ar" && "text-right")}>
               {actionType === "check-in" && (language === "ar" ? "تأكيد تسجيل الحضور" : "Confirm Check-in")}
               {actionType === "cancel" && (language === "ar" ? "تأكيد الإلغاء" : "Confirm Cancellation")}
+              {actionType === "refund" && (language === "ar" ? "تأكيد استرداد المبلغ (Paymob Refund)" : "Confirm Paymob Refund")}
               {actionType === "no-show" && (language === "ar" ? "تسجيل عدم الحضور" : "Mark missed booking")}
               {actionType === "approve" && (language === "ar" ? "تأكيد الموافقة" : "Confirm Approval")}
             </DialogTitle>
             <DialogDescription className={cn(language === "ar" && "text-right")}>
-              {language === "ar" ? "هل أنت متأكد من تنفيذ هذا الإجراء؟" : "Are you sure you want to perform this action?"}
+              {actionType === "refund" ? (
+                language === "ar" ? (
+                  <span>
+                    سيتم استرداد المبلغ المدفوع (
+                    <strong className="text-foreground font-bold">
+                      {Number(selectedBooking?.totalPrice ?? selectedBooking?.amount ?? 0).toLocaleString()} ج.م
+                    </strong>
+                    ) مباشرة إلى بطاقة اللاعب البنكية عبر بوابة Paymob وإلغاء الحجز. هل تريد المتابعة؟
+                  </span>
+                ) : (
+                  <span>
+                    This will refund the paid amount (
+                    <strong className="text-foreground font-bold">
+                      {Number(selectedBooking?.totalPrice ?? selectedBooking?.amount ?? 0).toLocaleString()} EGP
+                    </strong>
+                    ) directly to the player&apos;s card via Paymob and cancel the booking. Do you want to proceed?
+                  </span>
+                )
+              ) : (
+                language === "ar" ? "هل أنت متأكد من تنفيذ هذا الإجراء؟" : "Are you sure you want to perform this action?"
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className={cn("gap-2", language === "ar" && "sm:flex-row-reverse sm:justify-start")}>
             <Button variant="outline" className="rounded-2xl" onClick={() => setActionDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button className="rounded-2xl" onClick={confirmAction}>
-              {language === "ar" ? "تأكيد" : "Confirm"}
+            <Button
+              className={cn("rounded-2xl", actionType === "refund" && "bg-amber-600 hover:bg-amber-700 text-white")}
+              onClick={confirmAction}
+            >
+              {actionType === "refund"
+                ? (language === "ar" ? "تأكيد الاسترداد" : "Confirm Refund")
+                : (language === "ar" ? "تأكيد" : "Confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

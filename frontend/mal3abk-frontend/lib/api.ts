@@ -1,6 +1,7 @@
 import type {
   Court,
   Booking,
+  BookingHoldStatus,
   BookingAttendanceFilter,
   BookingCustomerSummary,
   BookingCustomerTypeFilter,
@@ -1019,6 +1020,7 @@ export interface CreateBookingPayload {
   endTime: string
   notes?: string | null
   totalPrice?: number
+  couponCode?: string | null
 }
 
 export interface CreateManualBookingPayload {
@@ -1032,6 +1034,8 @@ export interface CreateManualBookingPayload {
   guestPhone?: string
   paymentMethod?: string
   paymentStatus?: "pending" | "paid" | "failed" | "refunded"
+  discountType?: "percentage" | "fixed"
+  discountValue?: number
 }
 
 export interface ManualBookingCustomerLookup {
@@ -1049,6 +1053,12 @@ export async function listBookings(params: ListBookingsParams = {}) {
 
 export async function getBooking(id: string) {
   return apiFetch<{ booking: Booking }>(`/bookings/${encodeURIComponent(id)}`, {
+    method: "GET",
+  })
+}
+
+export async function getBookingHoldStatus(id: string) {
+  return apiFetch<BookingHoldStatus>(`/bookings/${encodeURIComponent(id)}/hold-status`, {
     method: "GET",
   })
 }
@@ -1629,19 +1639,133 @@ export async function createPaymobCheckoutSession(params: {
   startTime?: string
   endTime?: string
   notes?: string
-  paymentMethodType?: "card" | "wallet"
+  couponCode?: string
+  paymentMethodType?: "card" | "wallet" | "apple_pay" | "all"
 }) {
+  try {
+    return await apiFetch<{
+      bookingId: string
+      paymentId: string
+      clientSecret: string
+      checkoutUrl: string
+      amount: number
+      currency: string
+    }>(`/payments/create-checkout-session`, {
+      method: "POST",
+      body: JSON.stringify(params),
+    })
+  } catch (error: any) {
+    console.error("Paymob checkout session error:", {
+      message: error?.message,
+      status: error?.status,
+      body: error?.body,
+      params,
+    })
+    throw error
+  }
+}
+
+export async function refundPayment(paymentIdOrBookingId: string, customAmount?: number) {
   return await apiFetch<{
-    bookingId: string
-    paymentId: string
-    clientSecret: string
-    checkoutUrl: string
-    amount: number
-    currency: string
-  }>(`/payments/create-checkout-session`, {
+    ok: boolean
+    message: string
+    data: any
+  }>(`/payments/refund/${paymentIdOrBookingId}`, {
+    method: "POST",
+    body: JSON.stringify(customAmount ? { amount: customAmount } : {}),
+  })
+}
+
+// -------------------------
+// Coupons & Promo Codes
+// -------------------------
+
+export async function validateCoupon(params: {
+  code: string
+  courtId: string
+  bookingAmount: number
+}) {
+  return await apiFetch<import("@/lib/types").ValidateCouponResponse>(`/coupons/validate`, {
     method: "POST",
     body: JSON.stringify(params),
   })
 }
 
+export async function listCoupons(params: {
+  courtId?: string
+  isActive?: boolean
+  search?: string
+  page?: number
+  limit?: number
+} = {}) {
+  return await apiFetch<{
+    items: import("@/lib/types").Coupon[]
+    pagination: {
+      total: number
+      page: number
+      limit: number
+      totalPages: number
+    }
+  }>(`/coupons${toQueryString(params)}`, {
+    method: "GET",
+  })
+}
+
+export async function createCoupon(payload: {
+  code: string
+  description?: string
+  discountType: "percentage" | "fixed"
+  discountValue: number
+  minBookingAmount?: number | null
+  maxDiscountCap?: number | null
+  maxUses?: number | null
+  maxUsesPerUser?: number | null
+  startDate?: string | null
+  expiresAt?: string | null
+  courtId?: string | null
+  isActive?: boolean
+}) {
+  return await apiFetch<{
+    success: boolean
+    message: string
+    coupon: import("@/lib/types").Coupon
+  }>(`/coupons`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateCoupon(
+  id: string,
+  payload: Partial<{
+    description?: string
+    discountType?: "percentage" | "fixed"
+    discountValue?: number
+    minBookingAmount?: number | null
+    maxDiscountCap?: number | null
+    maxUses?: number | null
+    maxUsesPerUser?: number | null
+    startDate?: string | null
+    expiresAt?: string | null
+    courtId?: string | null
+    isActive?: boolean
+  }>,
+) {
+  return await apiFetch<{
+    success: boolean
+    message: string
+    coupon: import("@/lib/types").Coupon
+  }>(`/coupons/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteCoupon(id: string) {
+  return await apiFetch<{ success: boolean; message: string }>(`/coupons/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  })
+}
+
 export { NOTIFICATIONS_REFRESH_EVENT }
+

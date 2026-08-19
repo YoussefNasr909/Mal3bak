@@ -9,3 +9,8 @@ export function normalizePhone(input) {
 export function isValidPhoneDigits(digits) {
   return typeof digits === "string" && digits.length >= 10 && digits.length <= 15;
 }
+
+/** Manager manual bookings accept Egyptian local or international input formats. */
+export function isValidEgyptianManualPhone(input) {
+  return typeof input === "string" && /^(?:0\d{10}|\+20 ?\d{10})$/.test(input.trim());
+}

@@ -33,6 +33,7 @@ import {
   Trash2,
   Users,
   XCircle,
+  Tag,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -995,6 +996,23 @@ export function AdminDashboard() {
                   </div>
                 </div>
               </button>
+
+              <Link
+                href="/dashboard/admin/coupons"
+                className="group rounded-2xl border border-border/60 bg-muted/10 p-4 hover:bg-muted/20 sm:col-span-2"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{isAr ? "الكوبونات وأكواد الخصم" : "Coupons & Promo Codes"}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {isAr ? "إنشاء وإدارة حملات الخصم العامة والخاصة" : "Create and manage platform & venue promo campaigns"}
+                    </p>
+                  </div>
+                  <div className="grid h-10 w-10 place-items-center rounded-2xl border border-border/60 bg-primary/10 text-primary">
+                    <Tag className="h-5 w-5" />
+                  </div>
+                </div>
+              </Link>
             </CardContent>
           </Card>
         </div>

@@ -27,6 +27,9 @@ import {
   Car,
   Coffee,
   Shield,
+  CreditCard,
+  Smartphone,
+  Tag,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -48,7 +51,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useLanguage } from "@/components/providers/language-provider"
 import { useAuth } from "@/components/providers/auth-provider"
 import { sportTypes, cities } from "@/lib/constants"
-import { listPublicCourts, getPublicCourtAvailability, createBooking, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
+import { listPublicCourts, getPublicCourtAvailability, createBooking, createPaymobCheckoutSession, getFavorites, toggleFavorite as toggleFavoriteApi, validateCoupon } from "@/lib/api"
 import type { Court } from "@/lib/types"
 import { timeToMinutes, minutesToTime, format12h, formatOperatingHours, checkNextDay, isPeakHour } from "@/lib/time"
 import { getBookableStartDateForCourt, getBookingDateForCourtSlot, getCalendarDayDiffFromEgyptToday, getEgyptDateSequence } from "@/lib/date"
@@ -378,6 +381,10 @@ export function BrowseCourtsPage() {
   const [selectedTime, setSelectedTime] = useState("")
   const [selectionResetNotice, setSelectionResetNotice] = useState("")
   const [bookingNote, setBookingNote] = useState("")
+  const [paymentMethodType, setPaymentMethodType] = useState<"all" | "card" | "wallet" | "apple_pay">("all")
+  const [couponCode, setCouponCode] = useState("")
+  const [appliedCoupon, setAppliedCoupon] = useState<import("@/lib/types").ValidateCouponResponse | null>(null)
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false)
   const [durationHours, setDurationHours] = useState<1 | 2 | 3>(1)
   const [timeFilter, setTimeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all")
   const bookingScrollRef = useRef<HTMLDivElement | null>(null)
@@ -821,6 +828,42 @@ export function BrowseCourtsPage() {
 
   const canConfirm = Boolean(selectedCourt && selectedDate && selectedTime && selectionAvailability.ok && durationFitsCourtHours)
   const quickDates = useMemo(() => getEgyptDateSequence(2, selectedCourtBookableStartDate), [selectedCourtBookableStartDate])
+    const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      toast.error(language === "ar" ? "يرجى كتابة كود الخصم أولاً" : "Please enter promo code first")
+      return
+    }
+    if (!selectedTime || !selectedCourt) {
+      toast.error(language === "ar" ? "يرجى اختيار وقت الحجز أولاً" : "Please select a time slot first")
+      return
+    }
+    setIsValidatingCoupon(true)
+    try {
+      const res = await validateCoupon({
+        code: couponCode.trim(),
+        courtId: selectedCourt.id,
+        bookingAmount: totalPrice,
+      })
+      setAppliedCoupon(res)
+      toast.success(
+        language === "ar"
+          ? `تم تطبيق الخصم بنجاح! (-${res.discountAmount} ج.م)`
+          : `Promo code applied! (-${res.discountAmount} EGP)`
+      )
+    } catch (e: any) {
+      toast.error(e?.message || (language === "ar" ? "كود الخصم غير صالح" : "Invalid promo code"))
+      setAppliedCoupon(null)
+    } finally {
+      setIsValidatingCoupon(false)
+    }
+  }
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null)
+    setCouponCode("")
+    toast.info(language === "ar" ? "تمت إزالة كود الخصم" : "Promo code removed")
+  }
+
   const handleConfirmBooking = async () => {
     if (!selectedCourt) return
     if (!selectedDate || !selectedTime) {
@@ -851,6 +894,7 @@ export function BrowseCourtsPage() {
         startTime: selectedTime,
         endTime: selectedEndTime,
         notes: toBookingNotePayload(bookingNote),
+        couponCode: appliedCoupon?.coupon?.code || undefined,
       })
 
       toast.success(
@@ -866,6 +910,55 @@ export function BrowseCourtsPage() {
       toast.error(error?.message || (language === "ar" ? "تعذر إنشاء الحجز" : "Could not create booking"))
     } finally {
       setIsSubmitting(false); // ✅ Reset loading state
+    }
+  }
+
+  const handlePaymobPay = async () => {
+    if (!selectedCourt) return
+    if (!selectedDate || !selectedTime) {
+      toast.error(language === "ar" ? "يرجى اختيار التاريخ والوقت" : "Please select date and time")
+      return
+    }
+
+    if (!selectionAvailability.ok) {
+      toast.error(selectionAvailability.message || (language === "ar" ? "الموعد غير متاح" : "Slot not available"))
+      return
+    }
+
+    if (!user?.id) {
+      toast.error(language === "ar" ? "يرجى تسجيل الدخول" : "Please log in")
+      router.push("/auth/login")
+      return
+    }
+
+    if (isSubmitting) return
+    setIsSubmitting(true)
+
+    try {
+      const selectedSlot = apiSlots.find((slot) => slot.start === selectedTime)
+      const bookingDate = selectedSlot?.date || getBookingDateForCourtSlot(selectedDate, selectedTime, selectedCourt)
+      
+      const sessionData = await createPaymobCheckoutSession({
+        courtId: selectedCourt.id,
+        date: bookingDate,
+        startTime: selectedTime,
+        endTime: selectedEndTime,
+        notes: toBookingNotePayload(bookingNote) ?? undefined,
+        couponCode: appliedCoupon?.coupon?.code || undefined,
+        paymentMethodType,
+      })
+
+      toast.success(
+        language === "ar"
+          ? "تم حجز الملعب مؤقتاً بنجاح! متبقي 15 دقيقة لإتمام الدفع"
+          : "Reservation hold created! You have 15 minutes to complete payment",
+      )
+      router.push(
+        `/dashboard/player/bookings/${sessionData.bookingId}/hold?checkoutUrl=${encodeURIComponent(sessionData.checkoutUrl)}`,
+      )
+    } catch (e: any) {
+      toast.error(e?.message || (language === "ar" ? "فشل بدء عملية الدفع عبر باي موب" : "Paymob payment initiation failed"))
+      setIsSubmitting(false)
     }
   }
 
@@ -1550,6 +1643,67 @@ export function BrowseCourtsPage() {
                 )}
               </div>
 
+              {/* Payment Method Selector */}
+              {selectedCourt?.allowOnlinePayment !== false && (
+                <div className="space-y-2.5 rounded-2xl bg-muted/30 border border-border/70 p-3.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-primary" />
+                      {language === "ar" ? "اختر وسيلة الدفع أونلاين" : "Select Payment Method"}
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
+                      Paymob Egypt
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethodType("card")}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                        paymentMethodType === "card"
+                          ? "bg-primary/15 border-primary text-primary shadow-sm ring-2 ring-primary"
+                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                      )}
+                    >
+                      <CreditCard className="h-5 w-5 mb-1 text-primary" />
+                      <span className="text-xs font-extrabold">{language === "ar" ? "بطاقة بنكية" : "Bank Card"}</span>
+                      <span className="text-[9px] opacity-70">Visa / Master</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethodType("wallet")}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                        paymentMethodType === "wallet"
+                          ? "bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-sm ring-2 ring-emerald-500"
+                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                      )}
+                    >
+                      <Smartphone className="h-5 w-5 mb-1 text-emerald-500" />
+                      <span className="text-xs font-extrabold">{language === "ar" ? "محفظة كاش" : "Wallet"}</span>
+                      <span className="text-[9px] opacity-70">Vodafone / Cash</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethodType("apple_pay")}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                        paymentMethodType === "apple_pay"
+                          ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 shadow-sm ring-2 ring-amber-500"
+                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                      )}
+                    >
+                      <Zap className="h-5 w-5 mb-1 text-amber-500" />
+                      <span className="text-xs font-extrabold">Apple Pay</span>
+                      <span className="text-[9px] opacity-70">{language === "ar" ? "أبل باي" : "Apple Pay"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Note to venue */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1569,31 +1723,175 @@ export function BrowseCourtsPage() {
                 />
               </div>
 
-              {/* Price summary */}
-              {selectedTime && (
-                <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
-                  <div className="text-xs text-muted-foreground">
-                    <span>{language === "ar" ? "من" : "From"} </span>
-                    <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language as "ar" | "en")}</span>
-                    <span> {language === "ar" ? "حتى" : "to"} </span>
-                    <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language as "ar" | "en")}</span>
+              {/* Promo Code Section */}
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="browse-promo-code" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="h-3.5 w-3.5 text-primary" />
+                  {language === "ar" ? "كود الخصم أو الكوبون" : "Promo Code or Coupon"}
+                </Label>
+                {appliedCoupon ? (
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-mono font-bold text-xs">
+                        <Tag className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-extrabold text-sm text-foreground uppercase tracking-wider">
+                            {appliedCoupon.coupon.code}
+                          </span>
+                          <Badge className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                            {appliedCoupon.coupon.discountType === "percentage"
+                              ? `-${appliedCoupon.coupon.discountValue}%`
+                              : `-${appliedCoupon.discountAmount} ${t("common.egp")}`}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-medium">
+                          {language === "ar"
+                            ? `تم توفير ${appliedCoupon.discountAmount} ج.م`
+                            : `Saved ${appliedCoupon.discountAmount} EGP`}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleRemoveCoupon}
+                      className="h-8 px-2.5 rounded-xl hover:bg-destructive/10 hover:text-destructive text-xs gap-1 text-muted-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      {language === "ar" ? "إزالة" : "Remove"}
+                    </Button>
                   </div>
-                  <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
-                </div>
-              )}
+                ) : (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Tag className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        id="browse-promo-code"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        placeholder={language === "ar" ? "أدخل كود الخصم (مثال: SUMMER20)" : "Enter code (e.g. SUMMER20)"}
+                        className="ps-9 rounded-2xl uppercase font-mono text-xs bg-muted/20 border-border/50 h-10"
+                        disabled={isValidatingCoupon}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            handleApplyCoupon()
+                          }
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleApplyCoupon}
+                      disabled={!couponCode.trim() || isValidatingCoupon}
+                      className="rounded-2xl h-10 px-4 text-xs font-bold border-primary/30 hover:bg-primary/10 hover:text-primary shrink-0"
+                    >
+                      {isValidatingCoupon ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (language === "ar" ? "تطبيق" : "Apply")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Price summary */}
+              {selectedTime && (() => {
+                const effectiveTotalPrice = appliedCoupon ? appliedCoupon.finalAmount : totalPrice
+                const policy = selectedCourt?.paymentPolicy ?? "full"
+                const depositValue = Number(selectedCourt?.depositValue || 0)
+                const hasDeposit = selectedCourt?.allowOnlinePayment !== false && (policy === "percentage" || policy === "fixed")
+                const depositAmount = hasDeposit
+                  ? policy === "percentage"
+                    ? Math.round(((effectiveTotalPrice * depositValue) / 100) * 100) / 100
+                    : Math.min(effectiveTotalPrice, depositValue)
+                  : 0
+                const remaining = Math.max(0, Math.round((effectiveTotalPrice - depositAmount) * 100) / 100)
+
+                return (
+                  <div className="space-y-2">
+                    <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
+                      <div className="text-xs text-muted-foreground">
+                        <span>{language === "ar" ? "من" : "From"} </span>
+                        <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language as "ar" | "en")}</span>
+                        <span> {language === "ar" ? "حتى" : "to"} </span>
+                        <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language as "ar" | "en")}</span>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        {hasDeposit && depositAmount > 0 ? (
+                          <>
+                            <span className="text-xs text-muted-foreground">
+                              {language === "ar" ? "السعر الكامل" : "Full price"}:{" "}
+                              {appliedCoupon ? (
+                                <>
+                                  <span className="line-through opacity-60 me-1">{totalPrice}</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{effectiveTotalPrice} {t("common.egp")}</span>
+                                </>
+                              ) : (
+                                <span className="font-semibold text-foreground">{totalPrice} {t("common.egp")}</span>
+                              )}
+                            </span>
+                            <span className="text-xl font-extrabold text-amber-600 dark:text-amber-500">{depositAmount} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
+                            <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                              {language === "ar" ? "العربون المطلوب الآن" : "Online deposit due now"}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {appliedCoupon && (
+                              <span className="text-xs text-muted-foreground line-through">{totalPrice} {t("common.egp")}</span>
+                            )}
+                            <span className="text-xl font-extrabold text-primary">{effectiveTotalPrice} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
+                            {selectedCourt?.allowOnlinePayment !== false && policy === "full" && (
+                              <span className="text-[10px] text-primary/80 font-medium bg-primary/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                                {language === "ar" ? "دفع كامل أونلاين" : "Full online payment"}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {hasDeposit && depositAmount > 0 && remaining > 0 && (
+                      <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{language === "ar" ? "الباقي للدفع في الملعب" : "Remaining due at venue"}</span>
+                        <span className="font-semibold text-foreground">{remaining} {t("common.egp")}</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
             </div>
           )}
 
-          <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:gap-3 sm:px-6 sm:pb-6 sm:pt-4 sm:space-x-0">
-            <Button variant="ghost" className="rounded-2xl flex-1 h-14 sm:h-12 text-muted-foreground hover:text-foreground" onClick={() => setBookingDialogOpen(false)}>
+          <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:gap-3 sm:px-6 sm:pb-6 sm:pt-4 flex-col sm:flex-row">
+            <Button variant="outline" className="rounded-2xl bg-transparent" onClick={() => setBookingDialogOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button className="rounded-2xl flex-1 h-14 sm:h-12 gap-2 text-base font-bold shadow-lg shadow-primary/20" onClick={handleConfirmBooking} disabled={!canConfirm || isSubmitting}>
-              {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-              {isSubmitting
-                ? (language === "ar" ? "جاري الحجز..." : "Booking...")
-                : (language === "ar" ? "تأكيد الحجز" : "Confirm Booking")}
+            
+            <Button
+              className="rounded-2xl flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all duration-200"
+              onClick={handlePaymobPay}
+              disabled={!canConfirm || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              {(() => {
+                if (paymentMethodType === "wallet") return language === "ar" ? "ادفع بالمحفظة الإلكترونية" : "Pay with Mobile Wallet";
+                if (paymentMethodType === "apple_pay") return language === "ar" ? "ادفع بـ Apple Pay" : "Pay with Apple Pay";
+                if (paymentMethodType === "card") return language === "ar" ? "ادفع بالبطاقة البنكية" : "Pay with Bank Card";
+                return language === "ar" ? "ادفع أونلاين بـ Paymob" : "Pay Online with Paymob";
+              })()}
+            </Button>
+
+            <Button
+              variant="secondary"
+              className="rounded-2xl gap-2 transition-all duration-200"
+              onClick={handleConfirmBooking}
+              disabled={!canConfirm || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {language === "ar" ? "حجز بدون دفع" : "Book (Pay Later)"}
             </Button>
           </DialogFooter>
         </DialogContent>

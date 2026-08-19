@@ -5,7 +5,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { createBooking, createPaymobCheckoutSession, getPublicCourtAvailability, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
+import { createBooking, createPaymobCheckoutSession, getPublicCourtAvailability, getFavorites, toggleFavorite as toggleFavoriteApi, validateCoupon } from "@/lib/api"
 import {
   ArrowLeft,
   ArrowRight,
@@ -33,6 +33,10 @@ import {
   Copy,
   Navigation,
   ExternalLink,
+  CreditCard,
+  Smartphone,
+  Tag,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -216,6 +220,10 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
   const [durationHours, setDurationHours] = useState<1 | 2 | 3>(1)
   const [timeFilter, setTimeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all")
   const [bookingNote, setBookingNote] = useState("")
+  const [paymentMethodType, setPaymentMethodType] = useState<"all" | "card" | "wallet" | "apple_pay">("all")
+  const [couponCode, setCouponCode] = useState("")
+  const [appliedCoupon, setAppliedCoupon] = useState<import("@/lib/types").ValidateCouponResponse | null>(null)
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false)
   const bookingScrollRef = useRef<HTMLDivElement | null>(null)
   const bookingOpenedAtRef = useRef(0)
 
@@ -533,7 +541,39 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
     toast.success(tr("تم نسخ العنوان", "Address copied"))
   }
 
- const handleConfirmBooking = async () => {
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      toast.error(tr("يرجى كتابة كود الخصم أولاً", "Please enter promo code first"))
+      return
+    }
+    if (!selectedTime) {
+      toast.error(tr("يرجى اختيار وقت الحجز أولاً", "Please select a time slot first"))
+      return
+    }
+    setIsValidatingCoupon(true)
+    try {
+      const res = await validateCoupon({
+        code: couponCode.trim(),
+        courtId: court.id,
+        bookingAmount: totalPrice,
+      })
+      setAppliedCoupon(res)
+      toast.success(tr(`تم تطبيق الخصم بنجاح! (-${res.discountAmount} ج.م)`, `Promo code applied! (-${res.discountAmount} EGP)`))
+    } catch (e: any) {
+      toast.error(e?.message || tr("كود الخصم غير صالح", "Invalid promo code"))
+      setAppliedCoupon(null)
+    } finally {
+      setIsValidatingCoupon(false)
+    }
+  }
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null)
+    setCouponCode("")
+    toast.info(tr("تمت إزالة كود الخصم", "Promo code removed"))
+  }
+
+  const handleConfirmBooking = async () => {
     if (!user) {
       toast.error(tr("يجب تسجيل الدخول أولاً", "You must log in first"))
       router.push(`/auth/login?redirect=/dashboard/player/browse/${court.id}`)
@@ -552,6 +592,7 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
         startTime: selectedTime,
         endTime: selectedEndTime,
         notes: toBookingNotePayload(bookingNote),
+        couponCode: appliedCoupon?.coupon?.code || undefined,
       })
       toast.success(tr("تم الحجز بنجاح! راجع صفحة حجوزاتي.", "Booking confirmed! Check My Bookings."))
       
@@ -600,11 +641,19 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
         startTime: selectedTime,
         endTime: selectedEndTime,
         notes: toBookingNotePayload(bookingNote) ?? undefined,
-        paymentMethodType: "card",
+        couponCode: appliedCoupon?.coupon?.code || undefined,
+        paymentMethodType,
       })
 
-      toast.loading(tr("جاري التحويل لصفحة باي موب...", "Redirecting to Paymob..."))
-      window.location.href = sessionData.checkoutUrl
+      toast.success(
+        tr(
+          "تم حجز الملعب مؤقتاً بنجاح! متبقي 15 دقيقة لإتمام الدفع",
+          "Reservation hold created! You have 15 minutes to complete payment",
+        ),
+      )
+      router.push(
+        `/dashboard/player/bookings/${sessionData.bookingId}/hold?checkoutUrl=${encodeURIComponent(sessionData.checkoutUrl)}`,
+      )
     } catch (e: any) {
       toast.error(e?.message || tr("فشل بدء عملية الدفع عبر باي موب", "Paymob payment initiation failed"))
       setIsSubmitting(false)
@@ -1150,18 +1199,241 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
               />
             </div>
 
-            {/* Price summary — only visible when a time is selected */}
-            {selectedTime && (
-              <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
-                <div className="text-xs text-muted-foreground">
-                  <span>{tr("من", "From")} </span>
-                  <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language)}</span>
-                  <span> {tr("حتى", "to")} </span>
-                  <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language)}</span>
+            {/* Payment Method Selector */}
+            {court.allowOnlinePayment !== false && (
+              <div className="space-y-2.5 rounded-2xl bg-muted/30 border border-border/70 p-3.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Zap className="h-3.5 w-3.5 text-primary" />
+                    {tr("اختر وسيلة الدفع أونلاين", "Select Payment Method")}
+                  </Label>
+                  <span className="text-[10px] text-muted-foreground bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
+                    Paymob Egypt
+                  </span>
                 </div>
-                <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodType("card")}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                      paymentMethodType === "card"
+                        ? "bg-primary/15 border-primary text-primary shadow-sm ring-2 ring-primary"
+                        : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                    )}
+                  >
+                    <CreditCard className="h-5 w-5 mb-1 text-primary" />
+                    <span className="text-xs font-extrabold">{tr("بطاقة بنكية", "Bank Card")}</span>
+                    <span className="text-[9px] opacity-70">Visa / Master</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodType("wallet")}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                      paymentMethodType === "wallet"
+                        ? "bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-sm ring-2 ring-emerald-500"
+                        : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                    )}
+                  >
+                    <Smartphone className="h-5 w-5 mb-1 text-emerald-500" />
+                    <span className="text-xs font-extrabold">{tr("محفظة كاش", "Wallet")}</span>
+                    <span className="text-[9px] opacity-70">Vodafone / Cash</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodType("apple_pay")}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
+                      paymentMethodType === "apple_pay"
+                        ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 shadow-sm ring-2 ring-amber-500"
+                        : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
+                    )}
+                  >
+                    <Zap className="h-5 w-5 mb-1 text-amber-500" />
+                    <span className="text-xs font-extrabold">Apple Pay</span>
+                    <span className="text-[9px] opacity-70">أبل باي</span>
+                  </button>
+                </div>
               </div>
             )}
+
+            {/* Note to Venue */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="court-details-booking-note" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  {tr("ملاحظة للملعب", "Note to Venue")}
+                </Label>
+                <span className="text-xs text-muted-foreground">{bookingNote.length}/{BOOKING_NOTE_MAX_LENGTH}</span>
+              </div>
+              <Textarea
+                id="court-details-booking-note"
+                rows={2}
+                maxLength={BOOKING_NOTE_MAX_LENGTH}
+                value={bookingNote}
+                onChange={(event) => setBookingNote(event.target.value)}
+                className="rounded-2xl resize-none bg-muted/20 border-border/50 text-sm placeholder:text-muted-foreground/50"
+                placeholder={tr("ملاحظة اختيارية للمدير...", "Optional note for the venue manager...")}
+              />
+            </div>
+
+            {/* Promo Code Section */}
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="court-details-promo-code" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5 text-primary" />
+                {tr("كود الخصم أو الكوبون", "Promo Code or Coupon")}
+              </Label>
+              {appliedCoupon ? (
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-mono font-bold text-xs">
+                      <Tag className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-extrabold text-sm text-foreground uppercase tracking-wider">
+                          {appliedCoupon.coupon.code}
+                        </span>
+                        <Badge className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                          {appliedCoupon.coupon.discountType === "percentage"
+                            ? `-${appliedCoupon.coupon.discountValue}%`
+                            : `-${appliedCoupon.discountAmount} ${t("common.egp") ?? "EGP"}`}
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-medium">
+                        {tr(`تم توفير ${appliedCoupon.discountAmount} ج.م`, `Saved ${appliedCoupon.discountAmount} EGP`)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveCoupon}
+                    className="h-8 px-2.5 rounded-xl hover:bg-destructive/10 hover:text-destructive text-xs gap-1 text-muted-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {tr("إزالة", "Remove")}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Tag className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      id="court-details-promo-code"
+                      value={couponCode}
+                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                      placeholder={tr("أدخل كود الخصم (مثال: SUMMER20)", "Enter code (e.g. SUMMER20)")}
+                      className="ps-9 rounded-2xl uppercase font-mono text-xs bg-muted/20 border-border/50 h-10"
+                      disabled={isValidatingCoupon}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          handleApplyCoupon()
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleApplyCoupon}
+                    disabled={!couponCode.trim() || isValidatingCoupon}
+                    className="rounded-2xl h-10 px-4 text-xs font-bold border-primary/30 hover:bg-primary/10 hover:text-primary shrink-0"
+                  >
+                    {isValidatingCoupon ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : tr("تطبيق", "Apply")}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Price summary — only visible when a time is selected */}
+            {selectedTime && (() => {
+              const effectiveTotalPrice = appliedCoupon ? appliedCoupon.finalAmount : totalPrice;
+              let depositAmount = 0;
+              let hasDeposit = false;
+              let isFullOnlinePayment = false;
+
+              if (court.allowOnlinePayment !== false && court.paymentPolicy) {
+                if (court.paymentPolicy === "full") {
+                  isFullOnlinePayment = true;
+                } else {
+                  hasDeposit = true;
+                  const depositVal = Number(court.depositValue || 0);
+                  if (court.paymentPolicy === "percentage") {
+                    depositAmount = Math.round(((effectiveTotalPrice * depositVal) / 100) * 100) / 100;
+                  } else if (court.paymentPolicy === "fixed") {
+                    depositAmount = Math.min(effectiveTotalPrice, depositVal);
+                  }
+                }
+              }
+
+              const remaining = Math.max(0, Math.round((effectiveTotalPrice - depositAmount) * 100) / 100);
+
+              return (
+                <div className="space-y-2">
+                  <div className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
+                      <span>{tr("من", "From")} </span>
+                      <span className="font-bold text-foreground" dir="ltr">{format12h(selectedTime, language)}</span>
+                      <span> {tr("حتى", "to")} </span>
+                      <span className="font-bold text-foreground" dir="ltr">{format12h(selectedEndTime, language)}</span>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      {hasDeposit && depositAmount > 0 ? (
+                        <>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground">
+                              {tr("السعر الكامل", "Full price")}:{" "}
+                              {appliedCoupon ? (
+                                <>
+                                  <span className="line-through opacity-60 me-1">{totalPrice}</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{effectiveTotalPrice} {t("common.egp") ?? "EGP"}</span>
+                                </>
+                              ) : (
+                                <span className="font-semibold text-foreground">{totalPrice} {t("common.egp") ?? "EGP"}</span>
+                              )}
+                            </div>
+                            <span className="text-xl font-extrabold text-amber-600 dark:text-amber-500">{depositAmount} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                          </div>
+                          <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                            {tr("العربون المطلوب الآن", "Online deposit due now")}
+                          </span>
+                        </>
+                      ) : isFullOnlinePayment ? (
+                        <>
+                          {appliedCoupon && (
+                            <span className="text-xs text-muted-foreground line-through">{totalPrice} {t("common.egp") ?? "EGP"}</span>
+                          )}
+                          <span className="text-xl font-extrabold text-primary">{effectiveTotalPrice} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                          <span className="text-[10px] text-primary/80 font-medium bg-primary/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
+                            {tr("دفع كامل أونلاين", "Full Online Payment")}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          {appliedCoupon && (
+                            <span className="text-xs text-muted-foreground line-through">{totalPrice} {t("common.egp") ?? "EGP"}</span>
+                          )}
+                          <span className="text-xl font-extrabold text-primary">{effectiveTotalPrice} <span className="text-xs font-semibold">{t("common.egp") ?? "EGP"}</span></span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Remaining breakdown if applicable */}
+                  {hasDeposit && depositAmount > 0 && remaining > 0 && (
+                    <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{tr("الباقي للدفع في الملعب", "Remaining Due at Venue")}</span>
+                      <span className="font-semibold text-foreground">{remaining} {t("common.egp") ?? "EGP"}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter className="shrink-0 gap-2 border-t border-border/60 bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.08)] dark:shadow-[0_-12px_28px_rgba(0,0,0,0.42)] sm:px-6 sm:pb-6 sm:pt-4 flex-col sm:flex-row">
@@ -1175,7 +1447,12 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
               disabled={!selectedDate || !selectedTime || !durationFitsCourtHours || !selectionOk.ok || isSubmitting}
             >
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-              {tr("ادفع أونلاين بـ Paymob", "Pay Online with Paymob")}
+              {(() => {
+                if (paymentMethodType === "wallet") return tr("ادفع بالمحفظة الإلكترونية", "Pay with Mobile Wallet");
+                if (paymentMethodType === "apple_pay") return tr("ادفع بـ Apple Pay", "Pay with Apple Pay");
+                if (paymentMethodType === "card") return tr("ادفع بالبطاقة البنكية", "Pay with Bank Card");
+                return tr("ادفع أونلاين بـ Paymob", "Pay Online with Paymob");
+              })()}
             </Button>
 
             <Button

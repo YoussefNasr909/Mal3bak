@@ -87,10 +87,14 @@ export interface Booking {
   duration: number;
   totalPrice: number;
   amount?: number; // Alternative to totalPrice
+  discountType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
+  couponId?: string | null;
   // Persisted backend status only. "checked_in" is derived in the UI from attendance fields.
   status: BookingStatus;
   paymentStatus: "pending" | "paid" | "refunded";
   paymentMethod?: string;
+  expiresAt?: string | Date | null;
   checkInCode?: string;
   checkInVerified?: boolean;
   checkedIn?: boolean;
@@ -109,6 +113,46 @@ export interface Booking {
   courtCloseTime?: string;
   useOpeningDayForOvernightBookings?: boolean;
   court?: Court;
+  payments?: PaymentHistoryItem[];
+  latestPayment?: PaymentHistoryItem | null;
+}
+
+export interface BookingHoldStatus {
+  bookingId: string;
+  status: "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "no_show";
+  isExpired: boolean;
+  isPaid: boolean;
+  paymentStatus: "pending" | "paid" | "failed" | "refunded";
+  expiresAt: string | null;
+  remainingSeconds: number;
+  courtId: string;
+  courtName: string;
+  courtNameEn: string;
+  sportType: string;
+  courtLocation?: string;
+  courtLocationEn?: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  totalPrice: number;
+  amount: number;
+  discountType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
+  couponCode?: string | null;
+  clientSecret?: string | null;
+  paymobOrderId?: string | null;
+  paymentMethod?: string | null;
+}
+
+export interface PaymentHistoryItem {
+  id: string;
+  amount: number;
+  currency?: string;
+  status: string;
+  paymentMethod?: string;
+  paymobTransactionId?: string | null;
+  createdAt: string | Date;
 }
 
 export interface RevenueReportSummary {
@@ -481,3 +525,47 @@ export interface Tournament {
   scorePolicy?: { resultTypes: Array<"standard" | "walkover" | "retired">; description?: string };
   activities?: TournamentActivity[];
 }
+
+export interface Coupon {
+  id: string;
+  code: string;
+  description?: string | null;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  minBookingAmount?: number | null;
+  maxDiscountCap?: number | null;
+  maxUses?: number | null;
+  usedCount: number;
+  maxUsesPerUser?: number | null;
+  startDate?: string | Date | null;
+  expiresAt?: string | Date | null;
+  isActive: boolean;
+  courtId?: string | null;
+  court?: { id: string; name: string; nameEn?: string | null } | null;
+  createdById?: string;
+  createdBy?: { id: string; name: string; email: string; role: string } | null;
+  createdAt: string | Date;
+  updatedAt?: string | Date;
+  _count?: {
+    redemptions: number;
+  };
+}
+
+export interface ValidateCouponResponse {
+  valid: boolean;
+  coupon: {
+    id: string;
+    code: string;
+    description?: string | null;
+    discountType: "percentage" | "fixed";
+    discountValue: number;
+    courtId?: string | null;
+    courtName?: string | null;
+    maxDiscountCap?: number | null;
+    minBookingAmount?: number | null;
+  };
+  originalAmount: number;
+  discountAmount: number;
+  finalAmount: number;
+}
+
