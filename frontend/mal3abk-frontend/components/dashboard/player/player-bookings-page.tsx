@@ -8,6 +8,7 @@ import {
   Search,
   Calendar,
   Clock,
+  CreditCard,
   Ticket,
   History,
   MapPin,
@@ -617,6 +618,25 @@ export function PlayerBookingsPage() {
       }
       return null;
     }
+    if (status === "pending") {
+      const isHoldActive = Boolean(
+        booking?.expiresAt && new Date(booking.expiresAt).getTime() > Date.now(),
+      );
+      if (isHoldActive) {
+        return {
+          icon: Timer,
+          color: "text-amber-600 dark:text-amber-400",
+          bg: "bg-amber-500/10",
+          label: { ar: "بانتظار الدفع", en: "Awaiting Payment" },
+        };
+      }
+      return {
+        icon: AlertCircle,
+        color: "text-amber-600 dark:text-amber-400",
+        bg: "bg-amber-500/10",
+        label: { ar: "قيد الانتظار", en: "Pending" },
+      };
+    }
     const configs: Record<
       string,
       {
@@ -1166,6 +1186,21 @@ export function PlayerBookingsPage() {
                                 <Eye className="h-4 w-4" />
                                 {language === "ar" ? "تفاصيل" : "Details"}
                               </Button>
+
+                              {booking.status === "pending" && (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="rounded-xl gap-1.5 flex-1 sm:flex-none bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/dashboard/player/bookings/${booking.id}/hold`);
+                                  }}
+                                >
+                                  <CreditCard className="h-4 w-4" />
+                                  {language === "ar" ? "إتمام الدفع" : "Complete Payment"}
+                                </Button>
+                              )}
 
                               {booking.status === "confirmed" &&
                                 booking.checkInCode && (

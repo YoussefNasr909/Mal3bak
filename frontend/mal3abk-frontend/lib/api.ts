@@ -1,6 +1,7 @@
 import type {
   Court,
   Booking,
+  BookingHoldStatus,
   BookingAttendanceFilter,
   BookingCustomerSummary,
   BookingCustomerTypeFilter,
@@ -1019,6 +1020,7 @@ export interface CreateBookingPayload {
   endTime: string
   notes?: string | null
   totalPrice?: number
+  couponCode?: string | null
 }
 
 export interface CreateManualBookingPayload {
@@ -1051,6 +1053,12 @@ export async function listBookings(params: ListBookingsParams = {}) {
 
 export async function getBooking(id: string) {
   return apiFetch<{ booking: Booking }>(`/bookings/${encodeURIComponent(id)}`, {
+    method: "GET",
+  })
+}
+
+export async function getBookingHoldStatus(id: string) {
+  return apiFetch<BookingHoldStatus>(`/bookings/${encodeURIComponent(id)}/hold-status`, {
     method: "GET",
   })
 }
@@ -1631,6 +1639,7 @@ export async function createPaymobCheckoutSession(params: {
   startTime?: string
   endTime?: string
   notes?: string
+  couponCode?: string
   paymentMethodType?: "card" | "wallet" | "apple_pay" | "all"
 }) {
   try {
@@ -1664,6 +1673,97 @@ export async function refundPayment(paymentIdOrBookingId: string, customAmount?:
   }>(`/payments/refund/${paymentIdOrBookingId}`, {
     method: "POST",
     body: JSON.stringify(customAmount ? { amount: customAmount } : {}),
+  })
+}
+
+// -------------------------
+// Coupons & Promo Codes
+// -------------------------
+
+export async function validateCoupon(params: {
+  code: string
+  courtId: string
+  bookingAmount: number
+}) {
+  return await apiFetch<import("@/lib/types").ValidateCouponResponse>(`/coupons/validate`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  })
+}
+
+export async function listCoupons(params: {
+  courtId?: string
+  isActive?: boolean
+  search?: string
+  page?: number
+  limit?: number
+} = {}) {
+  return await apiFetch<{
+    items: import("@/lib/types").Coupon[]
+    pagination: {
+      total: number
+      page: number
+      limit: number
+      totalPages: number
+    }
+  }>(`/coupons${toQueryString(params)}`, {
+    method: "GET",
+  })
+}
+
+export async function createCoupon(payload: {
+  code: string
+  description?: string
+  discountType: "percentage" | "fixed"
+  discountValue: number
+  minBookingAmount?: number | null
+  maxDiscountCap?: number | null
+  maxUses?: number | null
+  maxUsesPerUser?: number | null
+  startDate?: string | null
+  expiresAt?: string | null
+  courtId?: string | null
+  isActive?: boolean
+}) {
+  return await apiFetch<{
+    success: boolean
+    message: string
+    coupon: import("@/lib/types").Coupon
+  }>(`/coupons`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateCoupon(
+  id: string,
+  payload: Partial<{
+    description?: string
+    discountType?: "percentage" | "fixed"
+    discountValue?: number
+    minBookingAmount?: number | null
+    maxDiscountCap?: number | null
+    maxUses?: number | null
+    maxUsesPerUser?: number | null
+    startDate?: string | null
+    expiresAt?: string | null
+    courtId?: string | null
+    isActive?: boolean
+  }>,
+) {
+  return await apiFetch<{
+    success: boolean
+    message: string
+    coupon: import("@/lib/types").Coupon
+  }>(`/coupons/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteCoupon(id: string) {
+  return await apiFetch<{ success: boolean; message: string }>(`/coupons/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   })
 }
 

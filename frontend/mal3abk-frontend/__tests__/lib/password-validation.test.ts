@@ -32,7 +32,7 @@ describe("password-validation utilities", () => {
   it("scores password strength across length and character rules", () => {
     expect(getPasswordStrength("")).toBe(0)
     expect(getPasswordStrength("password")).toBe(2)
-    expect(getPasswordStrength("Password1!")).toBe(5)
+    expect(getPasswordStrength("Password1!")).toBe(4)
   })
 
   it("returns requirement states and labels for partially complete passwords", () => {

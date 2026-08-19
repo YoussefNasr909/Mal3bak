@@ -17,6 +17,10 @@ import { hashPassword } from "../../utils/hash.js";
 import { clearAuthMeStatsCache } from "../auth/auth.service.js";
 import { createNotificationsTx } from "../notifications/notifications.service.js";
 import { refundTransaction } from "../payments/paymob.service.js";
+import {
+  validateCouponForBookingService,
+  recordCouponRedemptionService,
+} from "../coupons/coupons.service.js";
 
 const toDecimal = (v) => new Prisma.Decimal(v);
 const BOOKING_NO_SHOW_SYNC_INTERVAL_MS = Math.max(
@@ -1029,9 +1033,14 @@ async function syncSingleBookingNoShowIfNeeded(booking, tx = prisma) {
   return updatedBooking;
 }
 
-function normalizeLegacyBookingStatus(status) {
+function normalizeLegacyBookingStatus(status, booking) {
   const normalizedStatus = String(status || "confirmed").toLowerCase();
-  return normalizedStatus === "pending" ? "confirmed" : normalizedStatus;
+  if (normalizedStatus === "pending") {
+    if (booking?.expiresAt && new Date(booking.expiresAt) > new Date()) {
+      return "pending";
+    }
+  }
+  return normalizedStatus;
 }
 
 async function syncSingleBookingPendingIfNeeded(booking, tx = prisma) {
@@ -1039,10 +1048,29 @@ async function syncSingleBookingPendingIfNeeded(booking, tx = prisma) {
     return booking;
   }
 
+  if (booking.expiresAt) {
+    if (new Date(booking.expiresAt) > new Date()) {
+      return booking;
+    }
+    await tx.booking.updateMany({
+      where: {
+        id: booking.id,
+        status: "pending",
+        paymentStatus: { not: "paid" },
+      },
+      data: {
+        status: "cancelled",
+        paymentStatus: "failed",
+      },
+    });
+    return getBookingWithRelationsOrThrow(booking.id, tx);
+  }
+
   const result = await tx.booking.updateMany({
     where: {
       id: booking.id,
       status: "pending",
+      expiresAt: null,
     },
     data: {
       status: "confirmed",
@@ -1099,9 +1127,11 @@ function formatBooking(b) {
     amount: Number(b.amount),
     discountType: b.discountType || null,
     discountValue: b.discountValue == null ? null : Number(b.discountValue),
-    status: normalizeLegacyBookingStatus(b.status),
+    couponId: b.couponId || null,
+    status: b.status === "pending" && b.expiresAt && new Date(b.expiresAt) > new Date() ? "pending" : normalizeLegacyBookingStatus(b.status, b),
     paymentStatus: b.paymentStatus,
     paymentMethod: b.paymentMethod,
+    expiresAt: b.expiresAt || null,
     checkInCode: b.checkInCode,
     checkInVerified: b.checkInVerified,
     checkedIn: b.checkedIn,
@@ -1632,6 +1662,14 @@ async function getBookingOrThrow(id) {
           avatar: true,
         },
       },
+      coupon: {
+        select: {
+          id: true,
+          code: true,
+          discountType: true,
+          discountValue: true,
+        },
+      },
     },
   });
   if (!booking) {
@@ -1703,11 +1741,33 @@ export async function createBookingService(payload, currentUser) {
     );
     const checkInCode = await generateUniqueCode(tx);
 
-    let computedAmount = pricing.totalPrice;
+    let finalTotalPrice = pricing.totalPrice;
+    let appliedDiscountType = null;
+    let appliedDiscountValue = null;
+    let appliedCouponId = null;
+    let appliedDiscountAmount = 0;
+
+    if (payload.couponCode) {
+      const couponValidation = await validateCouponForBookingService({
+        code: payload.couponCode,
+        courtId: court.id,
+        bookingAmount: pricing.totalPrice,
+        userId: currentUser.id,
+        tx,
+      });
+
+      appliedDiscountType = couponValidation.coupon.discountType;
+      appliedDiscountValue = couponValidation.coupon.discountValue;
+      appliedCouponId = couponValidation.coupon.id;
+      appliedDiscountAmount = couponValidation.discountAmount;
+      finalTotalPrice = couponValidation.finalAmount;
+    }
+
+    let computedAmount = finalTotalPrice;
     if (court.paymentPolicy === "percentage") {
-      computedAmount = (pricing.totalPrice * Number(court.depositValue)) / 100;
+      computedAmount = (finalTotalPrice * Number(court.depositValue)) / 100;
     } else if (court.paymentPolicy === "fixed") {
-      computedAmount = Math.min(pricing.totalPrice, Number(court.depositValue));
+      computedAmount = Math.min(finalTotalPrice, Number(court.depositValue));
     }
 
     const requiresDeposit = court.allowOnlinePayment === true && court.paymentPolicy !== "full";
@@ -1726,8 +1786,11 @@ export async function createBookingService(payload, currentUser) {
         useOpeningDayForOvernightBookings:
           court.useOpeningDayForOvernightBookings === true,
         duration: pricing.duration,
-        totalPrice: toDecimal(pricing.totalPrice),
+        totalPrice: toDecimal(finalTotalPrice),
         amount: toDecimal(computedAmount),
+        discountType: appliedDiscountType,
+        discountValue: appliedDiscountValue ? toDecimal(appliedDiscountValue) : null,
+        couponId: appliedCouponId,
         status: initialStatus,
         paymentStatus: "pending",
         paymentMethod: null,
@@ -1737,6 +1800,16 @@ export async function createBookingService(payload, currentUser) {
       },
       include: bookingDetailsInclude,
     });
+
+    if (appliedCouponId) {
+      await recordCouponRedemptionService({
+        couponId: appliedCouponId,
+        userId: currentUser.id,
+        bookingId: booking.id,
+        discountAmount: appliedDiscountAmount,
+        tx,
+      });
+    }
 
     await tx.court.update({
       where: { id: court.id },
@@ -1934,6 +2007,82 @@ export async function getBookingService(id, currentUser) {
   const booking = await getBookingOrThrow(id);
   assertBookingAccess(booking, currentUser);
   return { booking: formatBooking(booking) };
+}
+
+export async function getBookingHoldStatusService(id, currentUser) {
+  const booking = await getBookingOrThrow(id);
+  assertBookingAccess(booking, currentUser);
+
+  const now = new Date();
+  let status = booking.status;
+  let isExpired = false;
+  let remainingSeconds = 0;
+
+  if (booking.paymentStatus === "paid" || booking.status === "confirmed") {
+    status = "confirmed";
+    isExpired = false;
+    remainingSeconds = 0;
+  } else if (booking.status === "cancelled") {
+    status = "cancelled";
+    isExpired = true;
+    remainingSeconds = 0;
+  } else if (booking.status === "pending") {
+    if (booking.expiresAt && new Date(booking.expiresAt) <= now) {
+      await prisma.booking.updateMany({
+        where: { id: booking.id, status: "pending", paymentStatus: { not: "paid" } },
+        data: { status: "cancelled", paymentStatus: "failed" },
+      });
+      status = "expired";
+      isExpired = true;
+      remainingSeconds = 0;
+    } else if (booking.expiresAt) {
+      remainingSeconds = Math.max(0, Math.floor((new Date(booking.expiresAt).getTime() - now.getTime()) / 1000));
+      status = "pending";
+      isExpired = false;
+    }
+  }
+
+  const latestPayment = await prisma.payment.findFirst({
+    where: { bookingId: booking.id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      clientSecret: true,
+      paymobOrderId: true,
+      amountCents: true,
+      currency: true,
+      paymentMethod: true,
+      status: true,
+    },
+  });
+
+  return {
+    bookingId: booking.id,
+    status,
+    isExpired,
+    isPaid: booking.paymentStatus === "paid",
+    paymentStatus: booking.paymentStatus,
+    expiresAt: booking.expiresAt,
+    remainingSeconds,
+    courtId: booking.courtId,
+    courtName: booking.court?.name || "",
+    courtNameEn: booking.court?.nameEn || booking.court?.name || "",
+    sportType: booking.court?.sportType || "padel",
+    courtLocation: booking.court?.location || booking.court?.address || "",
+    courtLocationEn: booking.court?.locationEn || booking.court?.addressEn || "",
+    date: booking.date,
+    startTime: booking.startTime,
+    endTime: booking.endTime,
+    duration: booking.duration,
+    totalPrice: Number(booking.totalPrice),
+    amount: Number(booking.amount),
+    discountType: booking.discountType,
+    discountValue: booking.discountValue ? Number(booking.discountValue) : null,
+    couponCode: booking.coupon?.code || null,
+    clientSecret: latestPayment?.clientSecret || null,
+    paymobOrderId: latestPayment?.paymobOrderId || null,
+    paymentMethod: booking.paymentMethod || latestPayment?.paymentMethod || null,
+  };
 }
 
 export async function listBookingsService(query, currentUser) {

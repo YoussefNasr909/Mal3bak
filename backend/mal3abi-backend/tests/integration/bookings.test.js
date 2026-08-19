@@ -574,7 +574,7 @@ describe("Bookings Flow", () => {
     expect(res.body.booking.status).toBe("cancelled");
   });
 
-  it("should block a player from cancelling within 6 hours of the booking start", async () => {
+  it("should block a player from cancelling within 2 hours of the booking start", async () => {
     const createRes = await request(app).post("/api/v1/bookings").set("Origin", origin).set("Cookie", [playerToken]).send({
       courtId,
       date: getTomorrowDateStr(),
@@ -584,7 +584,7 @@ describe("Bookings Flow", () => {
     expect(createRes.status).toBe(201);
 
     const bookingId = createRes.body.booking.id;
-    await moveBookingToFutureHourSlot(bookingId, 5);
+    await moveBookingToFutureHourSlot(bookingId, 1);
 
     const res = await request(app)
       .post(`/api/v1/bookings/${bookingId}/cancel`)
@@ -592,7 +592,7 @@ describe("Bookings Flow", () => {
       .set("Cookie", [playerToken]);
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/6 hours/i);
+    expect(res.body.message).toMatch(/2 hours/i);
   });
 
   it("should block non-managers from verifying check-in codes", async () => {

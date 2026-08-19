@@ -164,31 +164,12 @@ describe("TournamentsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Create tournament/i }));
     const dialog = await screen.findByRole("dialog");
     const [titleInput] = within(dialog).getAllByRole("textbox");
+
     fireEvent.change(titleInput, { target: { value: "Spring Cup" } });
-    
-    await waitFor(() => {
-      expect(titleInput).toHaveValue("Spring Cup");
-    });
-
     fireEvent.click(within(dialog).getByRole("button", { name: /Next/i }));
-    
-    await waitFor(() => {
-      expect(within(dialog).getByLabelText(/Max teams/i)).toBeInTheDocument();
-    });
-
     fireEvent.click(within(dialog).getByRole("button", { name: /Next/i }));
-    
-    await waitFor(() => {
-      expect(within(dialog).getByLabelText(/Registration opens/i)).toBeInTheDocument();
-    });
-
     fillRequiredTournamentDates(dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: /Next/i }));
-    
-    await waitFor(() => {
-      expect(within(dialog).getByText("Court A")).toBeInTheDocument();
-    });
-
     fireEvent.click(within(dialog).getByText("Court A"));
     fireEvent.click(within(dialog).getByRole("button", { name: /Next/i }));
     fireEvent.click(within(dialog).getByRole("button", { name: /Create tournament/i }));

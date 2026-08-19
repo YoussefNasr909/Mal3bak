@@ -31,6 +31,7 @@ import {
   Info,
   Gift,
   Trophy,
+  Tag,
 } from "lucide-react";
 
 import { useTheme } from "next-themes";
@@ -130,6 +131,12 @@ export const dashboardNavItems: NavItem[] = [
     labelKey: "dashboard.tournaments",
     roles: ["admin"],
   },
+  {
+    href: "/dashboard/admin/coupons",
+    icon: Tag,
+    labelKey: "dashboard.coupons",
+    roles: ["admin"],
+  },
 
   {
     href: "/dashboard/manager/bookings",
@@ -159,6 +166,12 @@ export const dashboardNavItems: NavItem[] = [
     href: "/dashboard/manager/tournaments",
     icon: Trophy,
     labelKey: "dashboard.tournaments",
+    roles: ["manager"],
+  },
+  {
+    href: "/dashboard/manager/coupons",
+    icon: Tag,
+    labelKey: "dashboard.coupons",
     roles: ["manager"],
   },
 
@@ -259,7 +272,8 @@ function sectionForHref(
     href.includes("/revenue") ||
     href.includes("/favorites") ||
     href.includes("/browse") ||
-    href.includes("/tournaments")
+    href.includes("/tournaments") ||
+    href.includes("/coupons")
   )
     return "manage";
 

@@ -45,11 +45,11 @@ if (process.env.NODE_ENV !== "test") {
   );
   tournamentRegistrationAutomationTimer.unref?.();
 
-  // Run booking hold cleaner every 60 seconds
+  // Run booking hold cleaner every 30 seconds
   runBookingHoldExpirationAutomation();
   bookingHoldExpirationTimer = setInterval(
     runBookingHoldExpirationAutomation,
-    60000,
+    30000,
   );
   bookingHoldExpirationTimer.unref?.();
 }

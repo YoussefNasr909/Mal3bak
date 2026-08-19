@@ -28,6 +28,7 @@ export const createCheckoutSessionSchema = Joi.object({
     otherwise: Joi.required(),
   }),
   notes: Joi.string().max(200).optional().allow(""),
+  couponCode: Joi.string().trim().uppercase().max(30).optional().allow("", null),
   paymentMethodType: Joi.string().valid("card", "wallet", "apple_pay", "all").default("all"),
 });
 

@@ -10,6 +10,10 @@ import {
   calculateBookingPricing,
   generateUniqueCode,
 } from "../bookings/bookings.service.js";
+import {
+  validateCouponForBookingService,
+  recordCouponRedemptionService,
+} from "../coupons/coupons.service.js";
 
 export function calculateOnlinePaymentAmount(totalPrice, court) {
   const normalizedTotal = Number(totalPrice) || 0;
@@ -35,6 +39,7 @@ export async function createCheckoutSessionService({
   startTime,
   endTime,
   notes,
+  couponCode,
   paymentMethodType = "card",
 }) {
   const user = await prisma.user.findUnique({
@@ -136,7 +141,29 @@ export async function createCheckoutSessionService({
       }
 
       const pricing = calculateBookingPricing(c, startTime, endTime);
-      const computedAmount = calculateOnlinePaymentAmount(pricing.totalPrice, c);
+      let finalTotalPrice = pricing.totalPrice;
+      let appliedDiscountType = null;
+      let appliedDiscountValue = null;
+      let appliedCouponId = null;
+      let appliedDiscountAmount = 0;
+
+      if (couponCode) {
+        const couponValidation = await validateCouponForBookingService({
+          code: couponCode,
+          courtId: c.id,
+          bookingAmount: pricing.totalPrice,
+          userId: user.id,
+          tx,
+        });
+
+        appliedDiscountType = couponValidation.coupon.discountType;
+        appliedDiscountValue = couponValidation.coupon.discountValue;
+        appliedCouponId = couponValidation.coupon.id;
+        appliedDiscountAmount = couponValidation.discountAmount;
+        finalTotalPrice = couponValidation.finalAmount;
+      }
+
+      const computedAmount = calculateOnlinePaymentAmount(finalTotalPrice, c);
 
       const checkInCode = await generateUniqueCode(tx);
 
@@ -151,8 +178,11 @@ export async function createCheckoutSessionService({
           sessionCloseTime: c.closeTime || "23:59",
           useOpeningDayForOvernightBookings: c.useOpeningDayForOvernightBookings || false,
           duration: pricing.duration * 60,
-          totalPrice: pricing.totalPrice,
+          totalPrice: finalTotalPrice,
           amount: computedAmount,
+          discountType: appliedDiscountType,
+          discountValue: appliedDiscountValue,
+          couponId: appliedCouponId,
           status: "pending",
           paymentStatus: "pending",
           paymentMethod: paymentMethodType,
@@ -161,6 +191,16 @@ export async function createCheckoutSessionService({
           notes: notes || "Paymob Online Booking",
         },
       });
+
+      if (appliedCouponId) {
+        await recordCouponRedemptionService({
+          couponId: appliedCouponId,
+          userId: user.id,
+          bookingId: b.id,
+          discountAmount: appliedDiscountAmount,
+          tx,
+        });
+      }
 
       return { court: c, booking: b, computedAmount };
     });
@@ -218,6 +258,7 @@ export async function createCheckoutSessionService({
     paymentId: payment.id,
     clientSecret: intentionData.clientSecret,
     checkoutUrl: intentionData.checkoutUrl,
+    expiresAt: booking.expiresAt,
     amount,
     currency: "EGP",
   };

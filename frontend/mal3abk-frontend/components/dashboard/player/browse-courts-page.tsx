@@ -29,6 +29,7 @@ import {
   Shield,
   CreditCard,
   Smartphone,
+  Tag,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -50,7 +51,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useLanguage } from "@/components/providers/language-provider"
 import { useAuth } from "@/components/providers/auth-provider"
 import { sportTypes, cities } from "@/lib/constants"
-import { listPublicCourts, getPublicCourtAvailability, createBooking, createPaymobCheckoutSession, getFavorites, toggleFavorite as toggleFavoriteApi } from "@/lib/api"
+import { listPublicCourts, getPublicCourtAvailability, createBooking, createPaymobCheckoutSession, getFavorites, toggleFavorite as toggleFavoriteApi, validateCoupon } from "@/lib/api"
 import type { Court } from "@/lib/types"
 import { timeToMinutes, minutesToTime, format12h, formatOperatingHours, checkNextDay, isPeakHour } from "@/lib/time"
 import { getBookableStartDateForCourt, getBookingDateForCourtSlot, getCalendarDayDiffFromEgyptToday, getEgyptDateSequence } from "@/lib/date"
@@ -381,6 +382,9 @@ export function BrowseCourtsPage() {
   const [selectionResetNotice, setSelectionResetNotice] = useState("")
   const [bookingNote, setBookingNote] = useState("")
   const [paymentMethodType, setPaymentMethodType] = useState<"all" | "card" | "wallet" | "apple_pay">("all")
+  const [couponCode, setCouponCode] = useState("")
+  const [appliedCoupon, setAppliedCoupon] = useState<import("@/lib/types").ValidateCouponResponse | null>(null)
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false)
   const [durationHours, setDurationHours] = useState<1 | 2 | 3>(1)
   const [timeFilter, setTimeFilter] = useState<"all" | "morning" | "afternoon" | "evening">("all")
   const bookingScrollRef = useRef<HTMLDivElement | null>(null)
@@ -824,6 +828,42 @@ export function BrowseCourtsPage() {
 
   const canConfirm = Boolean(selectedCourt && selectedDate && selectedTime && selectionAvailability.ok && durationFitsCourtHours)
   const quickDates = useMemo(() => getEgyptDateSequence(2, selectedCourtBookableStartDate), [selectedCourtBookableStartDate])
+    const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      toast.error(language === "ar" ? "يرجى كتابة كود الخصم أولاً" : "Please enter promo code first")
+      return
+    }
+    if (!selectedTime || !selectedCourt) {
+      toast.error(language === "ar" ? "يرجى اختيار وقت الحجز أولاً" : "Please select a time slot first")
+      return
+    }
+    setIsValidatingCoupon(true)
+    try {
+      const res = await validateCoupon({
+        code: couponCode.trim(),
+        courtId: selectedCourt.id,
+        bookingAmount: totalPrice,
+      })
+      setAppliedCoupon(res)
+      toast.success(
+        language === "ar"
+          ? `تم تطبيق الخصم بنجاح! (-${res.discountAmount} ج.م)`
+          : `Promo code applied! (-${res.discountAmount} EGP)`
+      )
+    } catch (e: any) {
+      toast.error(e?.message || (language === "ar" ? "كود الخصم غير صالح" : "Invalid promo code"))
+      setAppliedCoupon(null)
+    } finally {
+      setIsValidatingCoupon(false)
+    }
+  }
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null)
+    setCouponCode("")
+    toast.info(language === "ar" ? "تمت إزالة كود الخصم" : "Promo code removed")
+  }
+
   const handleConfirmBooking = async () => {
     if (!selectedCourt) return
     if (!selectedDate || !selectedTime) {
@@ -854,6 +894,7 @@ export function BrowseCourtsPage() {
         startTime: selectedTime,
         endTime: selectedEndTime,
         notes: toBookingNotePayload(bookingNote),
+        couponCode: appliedCoupon?.coupon?.code || undefined,
       })
 
       toast.success(
@@ -903,11 +944,18 @@ export function BrowseCourtsPage() {
         startTime: selectedTime,
         endTime: selectedEndTime,
         notes: toBookingNotePayload(bookingNote) ?? undefined,
+        couponCode: appliedCoupon?.coupon?.code || undefined,
         paymentMethodType,
       })
 
-      toast.loading(language === "ar" ? "جاري التحويل لصفحة باي موب..." : "Redirecting to Paymob...")
-      window.location.href = sessionData.checkoutUrl
+      toast.success(
+        language === "ar"
+          ? "تم حجز الملعب مؤقتاً بنجاح! متبقي 15 دقيقة لإتمام الدفع"
+          : "Reservation hold created! You have 15 minutes to complete payment",
+      )
+      router.push(
+        `/dashboard/player/bookings/${sessionData.bookingId}/hold?checkoutUrl=${encodeURIComponent(sessionData.checkoutUrl)}`,
+      )
     } catch (e: any) {
       toast.error(e?.message || (language === "ar" ? "فشل بدء عملية الدفع عبر باي موب" : "Paymob payment initiation failed"))
       setIsSubmitting(false)
@@ -1675,17 +1723,91 @@ export function BrowseCourtsPage() {
                 />
               </div>
 
+              {/* Promo Code Section */}
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="browse-promo-code" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="h-3.5 w-3.5 text-primary" />
+                  {language === "ar" ? "كود الخصم أو الكوبون" : "Promo Code or Coupon"}
+                </Label>
+                {appliedCoupon ? (
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-mono font-bold text-xs">
+                        <Tag className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-extrabold text-sm text-foreground uppercase tracking-wider">
+                            {appliedCoupon.coupon.code}
+                          </span>
+                          <Badge className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                            {appliedCoupon.coupon.discountType === "percentage"
+                              ? `-${appliedCoupon.coupon.discountValue}%`
+                              : `-${appliedCoupon.discountAmount} ${t("common.egp")}`}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-medium">
+                          {language === "ar"
+                            ? `تم توفير ${appliedCoupon.discountAmount} ج.م`
+                            : `Saved ${appliedCoupon.discountAmount} EGP`}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleRemoveCoupon}
+                      className="h-8 px-2.5 rounded-xl hover:bg-destructive/10 hover:text-destructive text-xs gap-1 text-muted-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      {language === "ar" ? "إزالة" : "Remove"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Tag className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        id="browse-promo-code"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                        placeholder={language === "ar" ? "أدخل كود الخصم (مثال: SUMMER20)" : "Enter code (e.g. SUMMER20)"}
+                        className="ps-9 rounded-2xl uppercase font-mono text-xs bg-muted/20 border-border/50 h-10"
+                        disabled={isValidatingCoupon}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            handleApplyCoupon()
+                          }
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleApplyCoupon}
+                      disabled={!couponCode.trim() || isValidatingCoupon}
+                      className="rounded-2xl h-10 px-4 text-xs font-bold border-primary/30 hover:bg-primary/10 hover:text-primary shrink-0"
+                    >
+                      {isValidatingCoupon ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (language === "ar" ? "تطبيق" : "Apply")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {/* Price summary */}
               {selectedTime && (() => {
+                const effectiveTotalPrice = appliedCoupon ? appliedCoupon.finalAmount : totalPrice
                 const policy = selectedCourt?.paymentPolicy ?? "full"
                 const depositValue = Number(selectedCourt?.depositValue || 0)
                 const hasDeposit = selectedCourt?.allowOnlinePayment !== false && (policy === "percentage" || policy === "fixed")
                 const depositAmount = hasDeposit
                   ? policy === "percentage"
-                    ? Math.round(((totalPrice * depositValue) / 100) * 100) / 100
-                    : Math.min(totalPrice, depositValue)
+                    ? Math.round(((effectiveTotalPrice * depositValue) / 100) * 100) / 100
+                    : Math.min(effectiveTotalPrice, depositValue)
                   : 0
-                const remaining = Math.max(0, Math.round((totalPrice - depositAmount) * 100) / 100)
+                const remaining = Math.max(0, Math.round((effectiveTotalPrice - depositAmount) * 100) / 100)
 
                 return (
                   <div className="space-y-2">
@@ -1700,7 +1822,15 @@ export function BrowseCourtsPage() {
                         {hasDeposit && depositAmount > 0 ? (
                           <>
                             <span className="text-xs text-muted-foreground">
-                              {language === "ar" ? "السعر الكامل" : "Full price"}: <span className="font-semibold text-foreground">{totalPrice} {t("common.egp")}</span>
+                              {language === "ar" ? "السعر الكامل" : "Full price"}:{" "}
+                              {appliedCoupon ? (
+                                <>
+                                  <span className="line-through opacity-60 me-1">{totalPrice}</span>
+                                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{effectiveTotalPrice} {t("common.egp")}</span>
+                                </>
+                              ) : (
+                                <span className="font-semibold text-foreground">{totalPrice} {t("common.egp")}</span>
+                              )}
                             </span>
                             <span className="text-xl font-extrabold text-amber-600 dark:text-amber-500">{depositAmount} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
                             <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
@@ -1709,7 +1839,10 @@ export function BrowseCourtsPage() {
                           </>
                         ) : (
                           <>
-                            <span className="text-xl font-extrabold text-primary">{totalPrice} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
+                            {appliedCoupon && (
+                              <span className="text-xs text-muted-foreground line-through">{totalPrice} {t("common.egp")}</span>
+                            )}
+                            <span className="text-xl font-extrabold text-primary">{effectiveTotalPrice} <span className="text-xs font-semibold">{t("common.egp")}</span></span>
                             {selectedCourt?.allowOnlinePayment !== false && policy === "full" && (
                               <span className="text-[10px] text-primary/80 font-medium bg-primary/10 px-1.5 py-0.5 rounded uppercase mt-0.5">
                                 {language === "ar" ? "دفع كامل أونلاين" : "Full online payment"}
