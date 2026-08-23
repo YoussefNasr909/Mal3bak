@@ -79,6 +79,13 @@ describe("Notifications", () => {
     const manager = await seedManagerWith24hCourt(app);
     const player = await seedPlayer(app, "notifications_booking_player");
 
+    // This test covers the immediately-confirmed/cash notification path. Online-payment courts
+    // now create a 15-minute hold and correctly defer this notification until settlement.
+    await prisma.court.update({
+      where: { id: manager.courtId },
+      data: { allowOnlinePayment: false },
+    });
+
     const createRes = await request(app)
       .post("/api/v1/bookings")
       .set("Origin", ORIGIN)
@@ -796,6 +803,11 @@ const playerANotifications = await getNotifications(playerA.token);
         endTime: cairoTimeStr(checkInEnd),
         sessionOpenTime: "00:00",
         sessionCloseTime: "00:00",
+        // A player-created booking at an online-payment court is now a pending 15-minute hold.
+        // Check-in lifecycle coverage requires a settled booking, not an unpaid hold.
+        status: "confirmed",
+        paymentStatus: "paid",
+        expiresAt: null,
       },
     });
 
@@ -842,6 +854,8 @@ const playerANotifications = await getNotifications(playerA.token);
         sessionOpenTime: "00:00",
         sessionCloseTime: "00:00",
         status: "confirmed",
+        paymentStatus: "paid",
+        expiresAt: null,
         checkInVerified: false,
         checkedIn: false,
         checkedInAt: null,

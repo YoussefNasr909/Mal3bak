@@ -92,7 +92,8 @@ export interface Booking {
   couponId?: string | null;
   // Persisted backend status only. "checked_in" is derived in the UI from attendance fields.
   status: BookingStatus;
-  paymentStatus: "pending" | "paid" | "refunded";
+  cancellationReason?: "hold_expired" | "manager" | "player" | "system" | null;
+  paymentStatus: "pending" | "paid" | "failed" | "refunded" | "refund_pending";
   paymentMethod?: string;
   expiresAt?: string | Date | null;
   checkInCode?: string;
@@ -119,10 +120,11 @@ export interface Booking {
 
 export interface BookingHoldStatus {
   bookingId: string;
-  status: "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "no_show";
+  status: "pending" | "confirmed" | "cancelled" | "expired" | "verifying" | "completed" | "no_show";
   isExpired: boolean;
+  isVerifying?: boolean;
   isPaid: boolean;
-  paymentStatus: "pending" | "paid" | "failed" | "refunded";
+  paymentStatus: "pending" | "paid" | "failed" | "refunded" | "refund_pending";
   expiresAt: string | null;
   remainingSeconds: number;
   courtId: string;
@@ -568,4 +570,3 @@ export interface ValidateCouponResponse {
   discountAmount: number;
   finalAmount: number;
 }
-

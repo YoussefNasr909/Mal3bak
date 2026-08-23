@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   CreditCard,
+  Smartphone,
   Calendar,
   Clock,
   MapPin,
@@ -28,6 +29,7 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { useLanguage } from "@/components/providers/language-provider"
 import { getBookingHoldStatus, cancelBooking } from "@/lib/api"
+import { PaymobWalletCheckout } from "@/components/checkout/PaymobWalletCheckout"
 import type { BookingHoldStatus } from "@/lib/types"
 import { format12h } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -49,15 +51,17 @@ export function ReservationHoldPage({
 
   const { language, direction } = useLanguage()
   const isAr = language === "ar"
-  const tr = (ar: string, en: string) => (isAr ? ar : en)
+  const tr = useCallback((ar: string, en: string) => (language === "ar" ? ar : en), [language])
   const BackArrow = isAr ? ArrowRight : ArrowLeft
 
   const [holdData, setHoldData] = useState<BookingHoldStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [remainingSeconds, setRemainingSeconds] = useState<number>(TOTAL_HOLD_DURATION_SECONDS)
   const [isExpired, setIsExpired] = useState(false)
+  const [isVerifying, setIsVerifying] = useState(false)
   const [isPaid, setIsPaid] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [selectedMethod, setSelectedMethod] = useState<"card" | "wallet">("card")
 
   const serverExpiresAtRef = useRef<number | null>(null)
 
@@ -71,6 +75,16 @@ export function ReservationHoldPage({
 
         if (data.isPaid || data.status === "confirmed") {
           setIsPaid(true)
+          setIsVerifying(false)
+          setIsExpired(false)
+          setRemainingSeconds(0)
+          return
+        }
+
+        if (data.status === "verifying" || data.isVerifying) {
+          // Hold TTL elapsed but a payment is in flight — the server is protecting the slot in a
+          // grace window. Show a "confirming" state instead of prematurely expiring the UI.
+          setIsVerifying(true)
           setIsExpired(false)
           setRemainingSeconds(0)
           return
@@ -78,6 +92,7 @@ export function ReservationHoldPage({
 
         if (data.isExpired || data.status === "cancelled" || data.status === "expired") {
           setIsExpired(true)
+          setIsVerifying(false)
           setRemainingSeconds(0)
           return
         }
@@ -87,27 +102,30 @@ export function ReservationHoldPage({
           serverExpiresAtRef.current = expMs
           const diffSec = Math.max(0, Math.floor((expMs - Date.now()) / 1000))
           setRemainingSeconds(diffSec)
+          setIsVerifying(false)
           if (diffSec <= 0) {
-            setIsExpired(true)
+            // Timer elapsed but the server still holds the slot — let polling resolve the outcome.
+            setIsVerifying(true)
           }
         } else if (data.remainingSeconds != null) {
           setRemainingSeconds(data.remainingSeconds)
           serverExpiresAtRef.current = Date.now() + data.remainingSeconds * 1000
+          setIsVerifying(false)
           if (data.remainingSeconds <= 0) {
-            setIsExpired(true)
+            setIsVerifying(true)
           }
         }
       } catch (err: any) {
         if (!isBackground) {
           toast.error(
-            err?.message || tr("فشل تحميل بيانات حجز الملعب", "Failed to load booking hold status"),
+            err?.message || (language === "ar" ? "فشل تحميل بيانات حجز الملعب" : "Failed to load booking hold status"),
           )
         }
       } finally {
         if (!isBackground) setLoading(false)
       }
     },
-    [bookingId, tr],
+    [bookingId, language],
   )
 
   // Initial load
@@ -117,7 +135,7 @@ export function ReservationHoldPage({
 
   // 1-second countdown ticker
   useEffect(() => {
-    if (isPaid || isExpired) return
+    if (isPaid || isExpired || isVerifying) return
 
     const interval = setInterval(() => {
       if (serverExpiresAtRef.current) {
@@ -127,15 +145,16 @@ export function ReservationHoldPage({
         )
         setRemainingSeconds(diffSec)
         if (diffSec <= 0) {
-          setIsExpired(true)
+          // Do NOT declare expiry on the client. Enter a "verifying" state and let the server
+          // decide — it protects the slot in a grace window while an in-flight payment settles.
+          setIsVerifying(true)
           clearInterval(interval)
-          // Re-verify with backend to trigger state synchronization
           fetchHoldStatus(true)
         }
       } else {
         setRemainingSeconds((prev) => {
           if (prev <= 1) {
-            setIsExpired(true)
+            setIsVerifying(true)
             clearInterval(interval)
             fetchHoldStatus(true)
             return 0
@@ -146,7 +165,7 @@ export function ReservationHoldPage({
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [isPaid, isExpired, fetchHoldStatus])
+  }, [isPaid, isExpired, isVerifying, fetchHoldStatus])
 
   // Periodic status polling (every 4 seconds) to detect successful Paymob callback
   useEffect(() => {
@@ -213,6 +232,28 @@ export function ReservationHoldPage({
         <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
         <p className="text-muted-foreground font-medium">
           {tr("جاري التحقق من حالة حجز الملعب...", "Checking reservation hold status...")}
+        </p>
+      </div>
+    )
+  }
+
+  // In-flight payment grace window: the hold timer elapsed but a payment is still settling with
+  // Paymob. Never show an alarming "expired / money lost" screen here — the slot is protected.
+  if (isVerifying && !isPaid && !isExpired) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center" dir={direction}>
+        <div className="relative mb-5">
+          <Loader2 className="h-14 w-14 animate-spin text-primary" />
+          <ShieldCheck className="h-6 w-6 text-emerald-500 absolute inset-0 m-auto" />
+        </div>
+        <h2 className="text-xl font-bold mb-2">
+          {tr("جارٍ تأكيد الدفع...", "Confirming your payment…")}
+        </h2>
+        <p className="text-muted-foreground max-w-md text-sm leading-relaxed">
+          {tr(
+            "انتهت المهلة المؤقتة، لكن لا تقلق — ملعبك محجوز بينما نتحقق من دفعتك مع بوابة الدفع. لا تغلق هذه الصفحة.",
+            "The hold window elapsed, but don't worry — your slot is protected while we confirm your payment with the gateway. This can take a moment; please keep this page open.",
+          )}
         </p>
       </div>
     )
@@ -454,15 +495,54 @@ export function ReservationHoldPage({
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-2.5">
-                    <Button
-                      onClick={handleProceedToPayment}
-                      className="w-full h-12 text-base font-bold shadow-lg shadow-primary/20 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
-                    >
-                      <CreditCard className="h-5 w-5" />
-                      {tr("متابعة الدفع عبر Paymob الآن", "Proceed to Paymob Payment")}
-                      <ExternalLink className="h-4 w-4 ms-auto opacity-70" />
-                    </Button>
+                  <div className="space-y-4">
+                    {/* Payment Method Switcher Tabs */}
+                    <div className="grid grid-cols-2 p-1 rounded-xl bg-muted/60 border border-border/60 gap-1 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMethod("card")}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg transition-all cursor-pointer",
+                          selectedMethod === "card"
+                            ? "bg-background text-foreground shadow-sm font-bold"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <CreditCard className="h-4 w-4 text-emerald-500 shrink-0" />
+                        <span>{tr("بطاقة بنكية", "Debit / Card")}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMethod("wallet")}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg transition-all cursor-pointer",
+                          selectedMethod === "wallet"
+                            ? "bg-background text-foreground shadow-sm font-bold"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <Smartphone className="h-4 w-4 text-orange-500 shrink-0" />
+                        <span>{tr("محفظة إلكترونية", "Mobile Wallet")}</span>
+                      </button>
+                    </div>
+
+                    {selectedMethod === "card" ? (
+                      <Button
+                        onClick={handleProceedToPayment}
+                        className="w-full h-12 text-base font-bold shadow-lg shadow-primary/20 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
+                      >
+                        <CreditCard className="h-5 w-5" />
+                        {tr("متابعة الدفع بالبطاقة عبر Paymob", "Proceed with Card Payment")}
+                        <ExternalLink className="h-4 w-4 ms-auto opacity-70" />
+                      </Button>
+                    ) : (
+                      <PaymobWalletCheckout
+                        bookingId={bookingId}
+                        amountCents={Math.round((holdData?.amount || holdData?.totalPrice || 0) * 100)}
+                        courtName={courtName}
+                      />
+                    )}
 
                     <Button
                       onClick={handleCancelHold}

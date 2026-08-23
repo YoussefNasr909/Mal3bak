@@ -11,6 +11,7 @@ import {
   tomorrowDateStr,
 } from "../helpers/integration-fixtures.js";
 import { expireStaleBookingHoldsService } from "../../src/modules/bookings/bookings.service.js";
+import { attemptRefundSettlement } from "../../src/modules/payments/refund-settlement.service.js";
 
 describe("Payments Module - Integration Tests (Phase 5)", () => {
   const hmacSecret = "TEST_INTEGRATION_HMAC_SECRET_512";
@@ -23,6 +24,7 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
 
   beforeEach(async () => {
     process.env.PAYMOB_HMAC_SECRET = hmacSecret;
+    process.env.PAYMOB_API_KEY = "paymob_api_test_key";
     process.env.PAYMOB_SECRET_KEY = "egy_sk_test_mock_secret";
     process.env.PAYMOB_PUBLIC_KEY = "egy_pk_test_mock_public";
     process.env.PAYMOB_BASE_URL = "https://accept.paymob.com";
@@ -326,6 +328,52 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       expect(res.status).toBe(400);
       expect(res.body.error || res.body.message).toMatch(/already been paid/i);
     });
+
+    it("blocks card and wallet re-checkout while a refund is pending", async () => {
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "16:00",
+          endTime: "17:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 100,
+          amount: 100,
+          status: "cancelled",
+          cancellationReason: "manager",
+          paymentStatus: "refund_pending",
+          checkInCode: `REFUNDGUARD${Date.now()}`,
+        },
+      });
+
+      const originalFetch = global.fetch;
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock;
+
+      try {
+        const cardRes = await request(app)
+          .post("/api/v1/payments/create-checkout-session")
+          .set("Origin", ORIGIN)
+          .set("Cookie", [playerA.token])
+          .send({ bookingId: booking.id, paymentMethodType: "card" });
+        const walletRes = await request(app)
+          .post("/api/v1/payments/wallet/initiate")
+          .set("Origin", ORIGIN)
+          .set("Cookie", [playerA.token])
+          .send({ bookingId: booking.id, walletNumber: "01012345678" });
+
+        expect(cardRes.status).toBe(400);
+        expect(walletRes.status).toBe(400);
+        expect(cardRes.body.error || cardRes.body.message).toMatch(/refund is already being processed/i);
+        expect(walletRes.body.error || walletRes.body.message).toMatch(/refund is already being processed/i);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
   });
 
   describe("POST /api/v1/payments/webhook", () => {
@@ -441,6 +489,208 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
 
       expect(res2.status).toBe(200);
       expect(res2.body.processed).toBe(true);
+    });
+
+    it("must refund a late payment for a manager-cancelled booking even when the slot is free", async () => {
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "12:00",
+          endTime: "13:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 100,
+          amount: 100,
+          status: "cancelled",
+          cancellationReason: "manager",
+          paymentStatus: "pending",
+          checkInCode: `TSTMGR${Date.now()}`,
+        },
+      });
+
+      const payment = await prisma.payment.create({
+        data: {
+          bookingId: booking.id,
+          userId: playerA.userId,
+          provider: "paymob",
+          paymobOrderId: "77221100",
+          amountCents: 10000,
+          currency: "EGP",
+          status: "pending",
+        },
+      });
+
+      const callbackObj = {
+        amount_cents: 10000,
+        created_at: "2026-08-14T22:45:00.000000",
+        currency: "EGP",
+        error_occured: false,
+        has_parent_transaction: false,
+        id: 77221101,
+        integration_id: 5835543,
+        is_3d_secure: true,
+        is_auth: false,
+        is_capture: false,
+        is_refunded: false,
+        is_standalone_payment: true,
+        is_voided: false,
+        order: { id: 77221100, merchant_order_id: `${booking.id}_${Date.now()}` },
+        owner: 2428940,
+        pending: false,
+        source_data: { pan: "2346", sub_type: "MasterCard", type: "card" },
+        success: true,
+      };
+
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: async () => ({ message: "Gateway temporarily unavailable" }),
+      });
+
+      try {
+        const res = await request(app)
+          .post(`/api/v1/payments/webhook?hmac=${generateValidHmac(callbackObj)}`)
+          .set("Origin", ORIGIN)
+          .send({ obj: callbackObj });
+
+        expect(res.status).toBe(200);
+
+        const updatedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
+        const updatedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+        expect(updatedBooking).toMatchObject({
+          status: "cancelled",
+          cancellationReason: "manager",
+          paymentStatus: "refund_pending",
+        });
+        expect(updatedPayment).toMatchObject({
+          status: "refund_pending",
+          paymobTransactionId: "77221101",
+        });
+
+        const refundNotification = await prisma.notification.findFirst({
+          where: { userId: playerA.userId, eventKey: "booking_cancelled" },
+          orderBy: { createdAt: "desc" },
+        });
+        expect(refundNotification).toMatchObject({ title: "Refund in progress" });
+        expect(refundNotification.message).toContain("venue cancelled your booking");
+        expect(refundNotification.message).not.toContain("slot was taken");
+        expect(refundNotification.metadata).toMatchObject({
+          cancellationReason: "manager",
+          refundPending: true,
+          refundStatus: "processing",
+        });
+
+        const statusRes = await request(app)
+          .get(`/api/v1/payments/status/${booking.id}`)
+          .set("Origin", ORIGIN)
+          .set("Cookie", [playerA.token]);
+        expect(statusRes.status).toBe(200);
+        expect(statusRes.body.booking.cancellation).toEqual({
+          reason: "manager",
+          initiatedBy: "venue",
+          displayKey: "booking.cancellation.venue",
+          refundStatus: "processing",
+        });
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("should process a concurrent 3x duplicate webhook burst exactly once (advisory lock idempotency)", async () => {
+      const checkInCode = "TSTBURST" + Math.floor(Math.random() * 100000);
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "09:00",
+          endTime: "10:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 100,
+          amount: 100,
+          status: "pending",
+          paymentStatus: "pending",
+          checkInCode,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        },
+      });
+
+      await prisma.payment.create({
+        data: {
+          bookingId: booking.id,
+          userId: playerA.userId,
+          provider: "paymob",
+          paymobOrderId: `burst_order_${Date.now()}`,
+          amountCents: 10000,
+          currency: "EGP",
+          status: "pending",
+        },
+      });
+
+      const txnId = 918273645;
+      const callbackObj = {
+        amount_cents: 10000,
+        created_at: "2026-08-14T23:00:00.000000",
+        currency: "EGP",
+        error_occured: false,
+        has_parent_transaction: false,
+        id: txnId,
+        integration_id: 5835543,
+        is_3d_secure: true,
+        is_auth: false,
+        is_capture: false,
+        is_refunded: false,
+        is_standalone_payment: true,
+        is_voided: false,
+        order: { id: 91827364, merchant_order_id: `${booking.id}_${Date.now()}` },
+        owner: 2428940,
+        pending: false,
+        source_data: { pan: "2346", sub_type: "MasterCard", type: "card" },
+        success: true,
+      };
+
+      const validHmac = generateValidHmac(callbackObj);
+      const fire = () =>
+        request(app)
+          .post(`/api/v1/payments/webhook?hmac=${validHmac}`)
+          .set("Origin", ORIGIN)
+          .send({ obj: callbackObj });
+
+      // Fire three identical callbacks simultaneously.
+      const results = await Promise.all([fire(), fire(), fire()]);
+      results.forEach((r) => expect(r.status).toBe(200));
+
+      // Booking confirmed exactly once.
+      const updatedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
+      expect(updatedBooking.status).toBe("confirmed");
+      expect(updatedBooking.paymentStatus).toBe("paid");
+
+      // Exactly one payment row carries the transaction id, and it is paid (no P2002 duplicate row).
+      const paymentsForBooking = await prisma.payment.findMany({ where: { bookingId: booking.id } });
+      const withTxn = paymentsForBooking.filter((p) => p.paymobTransactionId === String(txnId));
+      expect(withTxn).toHaveLength(1);
+      expect(withTxn[0].status).toBe("paid");
+
+      // Exactly one confirmation notification for the player — no duplicate dispatch.
+      const playerNotifs = await prisma.notification.findMany({
+        where: {
+          userId: playerA.userId,
+          eventKey: "booking_created",
+          metadata: { path: ["bookingId"], equals: booking.id },
+        },
+      });
+      expect(playerNotifs).toHaveLength(1);
+
+      // No audit row for this transaction was misclassified as `failed` (P2002 → benign duplicate).
+      const auditLogs = await prisma.webhookAuditLog.findMany({ where: { transactionId: String(txnId) } });
+      expect(auditLogs.length).toBeGreaterThanOrEqual(1);
+      expect(auditLogs.every((l) => l.status !== "failed")).toBe(true);
     });
 
     it("should reject a valid callback whose amount differs from the checkout amount", async () => {
@@ -575,6 +825,7 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       const refundedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
       expect(refundedBooking.status).toBe("cancelled");
       expect(refundedBooking.paymentStatus).toBe("refunded");
+      expect(refundedBooking.cancellationReason).toBe("manager");
 
       const refundedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
       expect(refundedPayment.status).toBe("refunded");
@@ -853,6 +1104,143 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       expect(dbPayment.status).toBe("refunded");
 
       global.fetch = originalFetch;
+    });
+  });
+
+  describe("Refund settlement CAS and gateway inquiry", () => {
+    async function createRefundPendingPayment({ refundClaimedAt = null, refundRequestedCents = 10000 } = {}) {
+      const booking = await prisma.booking.create({
+        data: {
+          courtId: managerA.courtId,
+          userId: playerA.userId,
+          date: testDate,
+          startTime: "18:00",
+          endTime: "19:00",
+          sessionOpenTime: "00:00",
+          sessionCloseTime: "00:00",
+          duration: 60,
+          totalPrice: 100,
+          amount: 100,
+          status: "cancelled",
+          cancellationReason: "manager",
+          paymentStatus: "refund_pending",
+          checkInCode: "TSTCAS" + Math.floor(Math.random() * 1000000),
+        },
+      });
+
+      const payment = await prisma.payment.create({
+        data: {
+          bookingId: booking.id,
+          userId: playerA.userId,
+          provider: "paymob",
+          paymobTransactionId: "cas_" + Date.now() + "_" + Math.floor(Math.random() * 1000000),
+          amountCents: 10000,
+          refundRequestedCents,
+          refundClaimedAt,
+          currency: "EGP",
+          status: "refund_pending",
+          hmacVerified: true,
+        },
+      });
+
+      return { booking, payment };
+    }
+
+    it("reconciles a ghost-success refund by inquiry without posting a second refund", async () => {
+      const { booking, payment } = await createRefundPendingPayment({
+        refundClaimedAt: new Date(Date.now() - 3 * 60 * 1000),
+      });
+      const originalFetch = global.fetch;
+      const fetchMock = jest.fn().mockImplementation(async (url) => {
+        const target = String(url);
+        if (target.endsWith("/api/auth/tokens")) {
+          return { ok: true, json: async () => ({ token: "inquiry_token" }) };
+        }
+        if (target.includes(`/api/acceptance/transactions/${payment.paymobTransactionId}?token=inquiry_token`)) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: payment.paymobTransactionId,
+              success: true,
+              is_refunded: true,
+              refunded_amount_cents: 10000,
+            }),
+          };
+        }
+        throw new Error(`Unexpected Paymob request: ${target}`);
+      });
+      global.fetch = fetchMock;
+
+      try {
+        await expect(attemptRefundSettlement(payment.id)).resolves.toBe(true);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/void_refund/refund"))).toBe(false);
+
+        await expect(prisma.payment.findUnique({ where: { id: payment.id } }))
+          .resolves.toMatchObject({ status: "refunded" });
+        await expect(prisma.booking.findUnique({ where: { id: booking.id } }))
+          .resolves.toMatchObject({ paymentStatus: "refunded" });
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("inquires a stale claim, then refunds only after Paymob confirms no refund exists", async () => {
+      const { payment } = await createRefundPendingPayment({
+        refundClaimedAt: new Date(Date.now() - 3 * 60 * 1000),
+      });
+      const originalFetch = global.fetch;
+      const fetchMock = jest.fn().mockImplementation(async (url) => {
+        const target = String(url);
+        if (target.endsWith("/api/auth/tokens")) {
+          return { ok: true, json: async () => ({ token: "inquiry_token" }) };
+        }
+        if (target.includes(`/api/acceptance/transactions/${payment.paymobTransactionId}?token=inquiry_token`)) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: payment.paymobTransactionId,
+              success: true,
+              is_refunded: false,
+              refunded_amount_cents: 0,
+            }),
+          };
+        }
+        if (target.endsWith("/api/acceptance/void_refund/refund")) {
+          return { ok: true, json: async () => ({ success: true, id: "refund_ok" }) };
+        }
+        throw new Error(`Unexpected Paymob request: ${target}`);
+      });
+      global.fetch = fetchMock;
+
+      try {
+        await expect(attemptRefundSettlement(payment.id)).resolves.toBe(true);
+
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        const refundCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/void_refund/refund"));
+        expect(refundCall).toBeDefined();
+        expect(JSON.parse(refundCall[1].body)).toMatchObject({
+          transaction_id: payment.paymobTransactionId,
+          amount_cents: "10000",
+        });
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("does not dispatch another refund while a fresh claim is still in flight", async () => {
+      const { payment } = await createRefundPendingPayment({ refundClaimedAt: new Date() });
+      const originalFetch = global.fetch;
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock;
+
+      try {
+        await expect(attemptRefundSettlement(payment.id)).resolves.toBe(false);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
   });
 

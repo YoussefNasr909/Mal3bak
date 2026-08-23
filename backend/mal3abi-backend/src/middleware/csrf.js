@@ -18,7 +18,11 @@ export function csrfProtection(req, res, next) {
     return next();
   }
 
-  if (req.path === "/api/v1/payments/webhook" || req.originalUrl?.includes("/payments/webhook")) {
+  // Paymob posts its HMAC-signed callback here with no Origin/Referer and no bearer
+  // token, so this endpoint must be exempt from the browser CSRF check. Match the
+  // resolved path EXACTLY — never req.originalUrl, which carries the query string and
+  // would let an attacker bypass CSRF on any route via ?x=/payments/webhook.
+  if (req.path === "/api/v1/payments/webhook") {
     return next();
   }
 

@@ -1118,7 +1118,13 @@ export async function deleteBooking(id: string) {
   return result
 }
 export async function cancelBooking(id: string, options?: { lang?: string }) {
-  const result = await apiFetch<{ booking: Booking }>(`/bookings/${encodeURIComponent(id)}/cancel`, {
+  const result = await apiFetch<{
+    booking: Booking;
+    message?: string;
+    refundIssued?: boolean;
+    refundPending?: boolean;
+    refundAmount?: number;
+  }>(`/bookings/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
     body: JSON.stringify({ lang: options?.lang ?? "en" }),
   })
@@ -1768,4 +1774,3 @@ export async function deleteCoupon(id: string) {
 }
 
 export { NOTIFICATIONS_REFRESH_EVENT }
-

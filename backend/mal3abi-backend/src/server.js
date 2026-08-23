@@ -3,6 +3,7 @@ import { app } from "./app.js";
 import { prisma } from "./db/prisma.js";
 import { syncTournamentRegistrationWindowsService } from "./modules/tournaments/tournaments.service.js";
 import { expireStaleBookingHoldsService } from "./modules/bookings/bookings.service.js";
+import { processDeadLetterQueueService, processRefundOutboxService } from "./modules/payments/payments.service.js";
 
 const port = env.PORT;
 const host = env.HOST;
@@ -17,6 +18,9 @@ const tournamentRegistrationAutomationIntervalMs = Math.max(
 );
 let tournamentRegistrationAutomationTimer = null;
 let bookingHoldExpirationTimer = null;
+let dlqAutomationTimer = null;
+let refundOutboxTimer = null;
+let isRefundOutboxRunning = false;
 
 async function runTournamentRegistrationAutomation() {
   try {
@@ -37,6 +41,35 @@ async function runBookingHoldExpirationAutomation() {
   }
 }
 
+async function runDlqAutomation() {
+  try {
+    const summary = await processDeadLetterQueueService({ maxAgeMinutes: 5, maxAttempts: 5, limit: 25 });
+    if (summary.totalScanned > 0) {
+      console.log(`[DLQ Auto-Worker] Scanned: ${summary.totalScanned}, Recovered: ${summary.succeeded}, Failed: ${summary.failed}, Dead: ${summary.deadLettered}`);
+    }
+  } catch (error) {
+    console.error("[DLQ Auto-Worker Error]:", error);
+  }
+}
+
+// Refund outbox runs on its own tight 60s cadence (separate from the 5-minute DLQ) so captured
+// money is never left in `refund_pending` limbo for long during a gateway outage. The in-flight
+// guard prevents overlapping sweeps if a run exceeds 60s while Paymob is slow/unavailable.
+async function runRefundOutboxAutomation() {
+  if (isRefundOutboxRunning) return;
+  isRefundOutboxRunning = true;
+  try {
+    const refundSummary = await processRefundOutboxService({ limit: 25 });
+    if (refundSummary.totalScanned > 0) {
+      console.log(`[Refund Outbox] Scanned: ${refundSummary.totalScanned}, Refunded: ${refundSummary.refunded}, Still Pending: ${refundSummary.stillPending}`);
+    }
+  } catch (error) {
+    console.error("[Refund Outbox Error]:", error);
+  } finally {
+    isRefundOutboxRunning = false;
+  }
+}
+
 if (process.env.NODE_ENV !== "test") {
   runTournamentRegistrationAutomation();
   tournamentRegistrationAutomationTimer = setInterval(
@@ -52,6 +85,21 @@ if (process.env.NODE_ENV !== "test") {
     30000,
   );
   bookingHoldExpirationTimer.unref?.();
+
+  // Run DLQ processor every 5 minutes (300,000 ms)
+  dlqAutomationTimer = setInterval(
+    runDlqAutomation,
+    300000,
+  );
+  dlqAutomationTimer.unref?.();
+
+  // Run refund outbox every 60 seconds (dedicated fast cadence for captured-but-unrefunded money)
+  runRefundOutboxAutomation();
+  refundOutboxTimer = setInterval(
+    runRefundOutboxAutomation,
+    60000,
+  );
+  refundOutboxTimer.unref?.();
 }
 
 // Graceful Shutdown Handler
@@ -65,6 +113,14 @@ async function gracefulShutdown(signal) {
   if (bookingHoldExpirationTimer) {
     clearInterval(bookingHoldExpirationTimer);
     bookingHoldExpirationTimer = null;
+  }
+  if (dlqAutomationTimer) {
+    clearInterval(dlqAutomationTimer);
+    dlqAutomationTimer = null;
+  }
+  if (refundOutboxTimer) {
+    clearInterval(refundOutboxTimer);
+    refundOutboxTimer = null;
   }
 
   server.close(async () => {

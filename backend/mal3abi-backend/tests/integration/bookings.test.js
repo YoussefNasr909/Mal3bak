@@ -1,7 +1,9 @@
+import { jest } from "@jest/globals";
 import request from "supertest";
 import { app } from "../../src/app.js";
 import { prisma } from "../../src/db/prisma.js";
 import { minutesToTime } from "../../src/utils/date-utils.js";
+import { deleteBookingService } from "../../src/modules/bookings/bookings.service.js";
 import {
   waitForUserByEmail,
   loginUntilOk,
@@ -14,6 +16,7 @@ describe("Bookings Flow", () => {
   const origin = "http://localhost:3000";
   let managerToken;
   let playerToken;
+  let playerId;
   let courtId;
   
   // A helper function to get tomorrow's date
@@ -132,6 +135,7 @@ describe("Bookings Flow", () => {
       name: "Player", email: playerEmail, phone: phonePlayer, password: "Password123",
     });
     expect(plReg.status).toBe(201);
+    playerId = plReg.body.user.id;
     await waitForUserByEmail(plReg.body.user.email);
     const playerLogin = await loginUntilOk(app, plReg.body.user.email);
     expect(playerLogin.status).toBe(200);
@@ -572,6 +576,94 @@ describe("Bookings Flow", () => {
     if (res.status !== 200) console.error("Cancel Error:", res.body);
     expect(res.status).toBe(200);
     expect(res.body.booking.status).toBe("cancelled");
+    expect(res.body.booking.cancellationReason).toBe("player");
+    expect(res.body.booking.cancellation).toEqual({
+      reason: "player",
+      initiatedBy: "player",
+      displayKey: "booking.cancellation.player",
+      refundStatus: "not_applicable",
+    });
+
+    const getRes = await request(app)
+      .get(`/api/v1/bookings/${bookingId}`)
+      .set("Origin", origin)
+      .set("Cookie", [playerToken]);
+    const listRes = await request(app)
+      .get("/api/v1/bookings?mine=true")
+      .set("Origin", origin)
+      .set("Cookie", [playerToken]);
+
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.booking.cancellation).toEqual(res.body.booking.cancellation);
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.items.find((item) => item.id === bookingId)?.cancellation)
+      .toEqual(res.body.booking.cancellation);
+  });
+
+  it("keeps an eligible player refund in the outbox when Paymob is temporarily unavailable", async () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 3);
+    const date = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}`;
+    const booking = await prisma.booking.create({
+      data: {
+        courtId,
+        userId: playerId,
+        date,
+        startTime: "12:00",
+        endTime: "13:00",
+        sessionOpenTime: "00:00",
+        sessionCloseTime: "00:00",
+        duration: 60,
+        totalPrice: 100,
+        amount: 100,
+        status: "confirmed",
+        paymentStatus: "paid",
+        checkInCode: `TSTCXL${Date.now()}`,
+      },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        userId: playerId,
+        provider: "paymob",
+        paymobTransactionId: `cancel_txn_${Date.now()}`,
+        amountCents: 10000,
+        currency: "EGP",
+        status: "paid",
+        hmacVerified: true,
+      },
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ message: "Gateway temporarily unavailable" }),
+    });
+
+    try {
+      const res = await request(app)
+        .post(`/api/v1/bookings/${booking.id}/cancel`)
+        .set("Origin", origin)
+        .set("Cookie", [playerToken]);
+
+      expect(res.status).toBe(200);
+      expect(res.body.refundIssued).toBe(false);
+      expect(res.body.refundPending).toBe(true);
+
+      const [updatedBooking, updatedPayment] = await Promise.all([
+        prisma.booking.findUnique({ where: { id: booking.id } }),
+        prisma.payment.findUnique({ where: { id: payment.id } }),
+      ]);
+      expect(updatedBooking).toMatchObject({
+        status: "cancelled",
+        cancellationReason: "player",
+        paymentStatus: "refund_pending",
+      });
+      expect(updatedPayment?.status).toBe("refund_pending");
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   it("should block a player from cancelling within 2 hours of the booking start", async () => {
@@ -1008,6 +1100,13 @@ describe("Bookings Flow", () => {
 
     expect(futureBookingRes.status).toBe(201);
 
+    // Online-enabled courts now create an unpaid 15-minute hold. Upcoming reservations only
+    // include confirmed bookings, so model the HMAC-verified payment settlement explicitly.
+    await prisma.booking.update({
+      where: { id: futureBookingRes.body.booking.id },
+      data: { status: "confirmed", paymentStatus: "paid", expiresAt: null },
+    });
+
     const attendedBookingRes = await request(app)
       .post("/api/v1/bookings")
       .set("Origin", origin)
@@ -1025,6 +1124,8 @@ describe("Bookings Flow", () => {
       where: { id: attendedBookingRes.body.booking.id },
       data: {
         status: "completed",
+        paymentStatus: "paid",
+        expiresAt: null,
         checkedIn: true,
         checkInVerified: true,
         checkedInAt: new Date(),
@@ -1066,6 +1167,11 @@ describe("Bookings Flow", () => {
 
     expect(upcomingRes.status).toBe(201);
 
+    await prisma.booking.update({
+      where: { id: upcomingRes.body.booking.id },
+      data: { status: "confirmed", paymentStatus: "paid", expiresAt: null },
+    });
+
     const historyRes = await request(app)
       .post("/api/v1/bookings")
       .set("Origin", origin)
@@ -1086,6 +1192,8 @@ describe("Bookings Flow", () => {
         startTime: "18:00",
         endTime: "19:00",
         status: "confirmed",
+        paymentStatus: "paid",
+        expiresAt: null,
         checkInVerified: false,
         checkedIn: false,
         checkedInAt: null,
@@ -1141,6 +1249,7 @@ describe("Bookings Flow", () => {
     
     expect(res.status).toBe(200);
     expect(res.body.booking.status).toBe("cancelled");
+    expect(res.body.booking.cancellationReason).toBe("manager");
   });
 
   it("should allow a manager to update booking notes and payment status", async () => {
@@ -1181,11 +1290,12 @@ describe("Bookings Flow", () => {
       where: { id: bookingId },
       select: { status: true, paymentStatus: true },
     });
-    expect(booking?.status).toBe("confirmed");
+    // The generic PATCH is rejected; the unpaid 15-minute hold must remain untouched.
+    expect(booking?.status).toBe("pending");
     expect(booking?.paymentStatus).toBe("pending");
   });
 
-  it("normalizes legacy pending bookings back to confirmed", async () => {
+  it("preserves an expired in-flight checkout throughout the two-minute grace window", async () => {
     const date = getTomorrowDateStr();
     const createRes = await request(app)
       .post("/api/v1/bookings")
@@ -1201,9 +1311,26 @@ describe("Bookings Flow", () => {
     expect(createRes.status).toBe(201);
     const bookingId = createRes.body.booking.id;
 
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId,
+        userId: playerId,
+        provider: "paymob",
+        paymobOrderId: `grace_order_${Date.now()}`,
+        amountCents: 10000,
+        currency: "EGP",
+        status: "pending",
+      },
+    });
+
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { status: "pending" },
+      data: {
+        status: "pending",
+        paymentStatus: "pending",
+        cancellationReason: null,
+        expiresAt: new Date(Date.now() - 60 * 1000),
+      },
     });
 
     const getRes = await request(app)
@@ -1212,14 +1339,20 @@ describe("Bookings Flow", () => {
       .set("Cookie", [playerToken]);
 
     expect(getRes.status).toBe(200);
-    expect(getRes.body.booking.status).toBe("confirmed");
+    expect(getRes.body.booking.status).toBe("pending");
+    expect(getRes.body.booking.cancellationReason).toBeNull();
 
     const refreshed = await prisma.booking.findUnique({
       where: { id: bookingId },
-      select: { status: true },
+      select: { status: true, paymentStatus: true, cancellationReason: true },
     });
 
-    expect(refreshed?.status).toBe("confirmed");
+    expect(payment.status).toBe("pending");
+    expect(refreshed).toMatchObject({
+      status: "pending",
+      paymentStatus: "pending",
+      cancellationReason: null,
+    });
   });
 
   it("should allow an admin to delete/archive a booking", async () => {
@@ -1250,6 +1383,67 @@ describe("Bookings Flow", () => {
     expect(res.status).toBe(200);
     expect(res.body.booking.status).toBe("cancelled");
     expect(res.body.booking.notes).toMatch(/Archived by Admin/i);
+  });
+
+  it("keeps a paid Paymob archive in refund_pending when gateway settlement fails", async () => {
+    const future = new Date();
+    future.setDate(future.getDate() + 3);
+    const date = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}`;
+    const booking = await prisma.booking.create({
+      data: {
+        courtId,
+        userId: playerId,
+        date,
+        startTime: "18:00",
+        endTime: "19:00",
+        sessionOpenTime: "00:00",
+        sessionCloseTime: "00:00",
+        duration: 60,
+        totalPrice: 100,
+        amount: 100,
+        status: "confirmed",
+        paymentStatus: "paid",
+        checkInCode: `TSTARC${Date.now()}`,
+      },
+    });
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        userId: playerId,
+        provider: "paymob",
+        paymobTransactionId: `archive_txn_${Date.now()}`,
+        amountCents: 10000,
+        currency: "EGP",
+        status: "paid",
+        hmacVerified: true,
+      },
+    });
+
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => ({ message: "Gateway temporarily unavailable" }),
+    });
+
+    try {
+      const result = await deleteBookingService(booking.id, { id: playerId, role: "admin" });
+      expect(result.refundIssued).toBe(false);
+      expect(result.refundPending).toBe(true);
+
+      const [updatedBooking, updatedPayment] = await Promise.all([
+        prisma.booking.findUnique({ where: { id: booking.id } }),
+        prisma.payment.findUnique({ where: { id: payment.id } }),
+      ]);
+      expect(updatedBooking).toMatchObject({
+        status: "cancelled",
+        cancellationReason: "manager",
+        paymentStatus: "refund_pending",
+      });
+      expect(updatedPayment?.status).toBe("refund_pending");
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   it("should allow fetching booked slots for availability", async () => {

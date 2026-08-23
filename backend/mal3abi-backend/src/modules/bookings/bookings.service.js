@@ -16,7 +16,7 @@ import { isValidPhoneDigits, normalizePhone } from "../../utils/phone.js";
 import { hashPassword } from "../../utils/hash.js";
 import { clearAuthMeStatsCache } from "../auth/auth.service.js";
 import { createNotificationsTx } from "../notifications/notifications.service.js";
-import { refundTransaction } from "../payments/paymob.service.js";
+import { attemptRefundSettlement } from "../payments/refund-settlement.service.js";
 import {
   validateCouponForBookingService,
   recordCouponRedemptionService,
@@ -28,6 +28,10 @@ const BOOKING_NO_SHOW_SYNC_INTERVAL_MS = Math.max(
   Number.parseInt(process.env.BOOKING_NO_SHOW_SYNC_INTERVAL_MS || "15000", 10) || 15000,
 );
 const WALK_IN_EMAIL_SUFFIX = "@walkin.local";
+// In-flight payment grace: once a hold's 15m TTL elapses, if the player already launched a
+// Paymob checkout (a pending Payment with a paymobOrderId), keep the slot reserved for this
+// long so a slightly-late webhook or inquiry can still settle it before we release the slot.
+const IN_FLIGHT_PAYMENT_GRACE_MS = 2 * 60 * 1000;
 const expiredConfirmedBookingsSyncPromises = new Map();
 const lastExpiredConfirmedBookingsSyncAt = new Map();
 
@@ -1052,6 +1056,21 @@ async function syncSingleBookingPendingIfNeeded(booking, tx = prisma) {
     if (new Date(booking.expiresAt) > new Date()) {
       return booking;
     }
+
+    // Hold TTL elapsed. Respect the in-flight payment grace window: if the player launched a
+    // Paymob checkout that is still pending, keep the hold briefly so a late webhook/inquiry can
+    // settle it, instead of cancelling a booking the player may have just paid for.
+    const expMs = new Date(booking.expiresAt).getTime();
+    if (Date.now() - expMs < IN_FLIGHT_PAYMENT_GRACE_MS) {
+      const inFlight = await tx.payment.findFirst({
+        where: { bookingId: booking.id, status: "pending", paymobOrderId: { not: null } },
+        select: { id: true },
+      });
+      if (inFlight) {
+        return booking; // within grace with an in-flight checkout — do not cancel yet
+      }
+    }
+
     await tx.booking.updateMany({
       where: {
         id: booking.id,
@@ -1061,6 +1080,7 @@ async function syncSingleBookingPendingIfNeeded(booking, tx = prisma) {
       data: {
         status: "cancelled",
         paymentStatus: "failed",
+        cancellationReason: "hold_expired",
       },
     });
     return getBookingWithRelationsOrThrow(booking.id, tx);
@@ -1088,6 +1108,38 @@ async function syncSingleBookingPendingIfNeeded(booking, tx = prisma) {
 async function syncSingleBookingStatusIfNeeded(booking, tx = prisma) {
   const normalizedBooking = await syncSingleBookingPendingIfNeeded(booking, tx);
   return syncSingleBookingNoShowIfNeeded(normalizedBooking, tx);
+}
+
+const CANCELLATION_PRESENTATION = {
+  manager: { initiatedBy: "venue", displayKey: "booking.cancellation.venue" },
+  player: { initiatedBy: "player", displayKey: "booking.cancellation.player" },
+  hold_expired: { initiatedBy: "system", displayKey: "booking.cancellation.hold_expired" },
+  system: { initiatedBy: "system", displayKey: "booking.cancellation.system" },
+};
+
+/**
+ * Stable, UI-safe cancellation context. Keep the persisted reason code separately for clients
+ * that need it, but never require a player-facing client to infer copy from raw DB state.
+ */
+export function formatBookingCancellation(booking) {
+  if (booking?.status !== "cancelled" && !booking?.cancellationReason) return null;
+
+  const presentation = CANCELLATION_PRESENTATION[booking?.cancellationReason] || {
+    initiatedBy: null,
+    displayKey: "booking.cancellation.generic",
+  };
+  const refundStatus = booking?.paymentStatus === "refund_pending"
+    ? "processing"
+    : booking?.paymentStatus === "refunded"
+      ? "completed"
+      : "not_applicable";
+
+  return {
+    reason: booking?.cancellationReason || null,
+    initiatedBy: presentation.initiatedBy,
+    displayKey: presentation.displayKey,
+    refundStatus,
+  };
 }
 
 function formatBooking(b) {
@@ -1129,6 +1181,8 @@ function formatBooking(b) {
     discountValue: b.discountValue == null ? null : Number(b.discountValue),
     couponId: b.couponId || null,
     status: b.status === "pending" && b.expiresAt && new Date(b.expiresAt) > new Date() ? "pending" : normalizeLegacyBookingStatus(b.status, b),
+    cancellationReason: b.cancellationReason || null,
+    cancellation: formatBookingCancellation(b),
     paymentStatus: b.paymentStatus,
     paymentMethod: b.paymentMethod,
     expiresAt: b.expiresAt || null,
@@ -1770,9 +1824,12 @@ export async function createBookingService(payload, currentUser) {
       computedAmount = Math.min(finalTotalPrice, Number(court.depositValue));
     }
 
-    const requiresDeposit = court.allowOnlinePayment === true && court.paymentPolicy !== "full";
-    const initialStatus = requiresDeposit ? "pending" : "confirmed";
-    const initialExpiresAt = requiresDeposit ? new Date(Date.now() + 15 * 60 * 1000) : null;
+    // Any court that accepts online payment creates a PENDING hold with a 15-minute TTL — never
+    // a permanent unpaid `confirmed` lock. The slot is only confirmed once payment settles via
+    // the webhook/inquiry pipeline. Cash-only courts (no online payment) stay immediately confirmed.
+    const requiresOnlinePayment = court.allowOnlinePayment === true;
+    const initialStatus = requiresOnlinePayment ? "pending" : "confirmed";
+    const initialExpiresAt = requiresOnlinePayment ? new Date(Date.now() + 15 * 60 * 1000) : null;
 
     const booking = await tx.booking.create({
       data: {
@@ -1816,10 +1873,16 @@ export async function createBookingService(payload, currentUser) {
       data: { totalBookings: { increment: 1 } },
     });
 
-    await createNotificationsTx(
-      tx,
-      buildBookingCreatedNotifications(booking, currentUser),
-    );
+    // Only notify on creation when the booking is immediately confirmed (cash / no online
+    // payment). Online-payment holds stay pending; their confirmation notification is sent by
+    // the payment reconciliation once money settles — avoids a premature "Booking confirmed"
+    // that a later hold expiry would contradict.
+    if (initialStatus === "confirmed") {
+      await createNotificationsTx(
+        tx,
+        buildBookingCreatedNotifications(booking, currentUser),
+      );
+    }
 
     return {
       booking: formatBooking(booking),
@@ -2013,35 +2076,6 @@ export async function getBookingHoldStatusService(id, currentUser) {
   const booking = await getBookingOrThrow(id);
   assertBookingAccess(booking, currentUser);
 
-  const now = new Date();
-  let status = booking.status;
-  let isExpired = false;
-  let remainingSeconds = 0;
-
-  if (booking.paymentStatus === "paid" || booking.status === "confirmed") {
-    status = "confirmed";
-    isExpired = false;
-    remainingSeconds = 0;
-  } else if (booking.status === "cancelled") {
-    status = "cancelled";
-    isExpired = true;
-    remainingSeconds = 0;
-  } else if (booking.status === "pending") {
-    if (booking.expiresAt && new Date(booking.expiresAt) <= now) {
-      await prisma.booking.updateMany({
-        where: { id: booking.id, status: "pending", paymentStatus: { not: "paid" } },
-        data: { status: "cancelled", paymentStatus: "failed" },
-      });
-      status = "expired";
-      isExpired = true;
-      remainingSeconds = 0;
-    } else if (booking.expiresAt) {
-      remainingSeconds = Math.max(0, Math.floor((new Date(booking.expiresAt).getTime() - now.getTime()) / 1000));
-      status = "pending";
-      isExpired = false;
-    }
-  }
-
   const latestPayment = await prisma.payment.findFirst({
     where: { bookingId: booking.id },
     orderBy: { createdAt: "desc" },
@@ -2056,12 +2090,71 @@ export async function getBookingHoldStatusService(id, currentUser) {
     },
   });
 
+  const now = new Date();
+  let status = booking.status;
+  let isExpired = false;
+  let remainingSeconds = 0;
+
+  if (booking.paymentStatus === "paid" || booking.status === "confirmed") {
+    status = "confirmed";
+    isExpired = false;
+    remainingSeconds = 0;
+  } else if (booking.status === "cancelled") {
+    status = "cancelled";
+    isExpired = true;
+    remainingSeconds = 0;
+  } else if (booking.status === "pending") {
+    const expMs = booking.expiresAt ? new Date(booking.expiresAt).getTime() : null;
+
+    if (expMs && expMs <= now.getTime()) {
+      // Hold TTL elapsed. If the player launched a Paymob checkout that is still in flight,
+      // keep the slot for a short grace window so a slightly-late webhook/inquiry can settle it.
+      // NEVER self-cancel from this read path a booking the player may have just paid for.
+      const hasInFlightPayment = Boolean(
+        latestPayment && latestPayment.status === "pending" && latestPayment.paymobOrderId,
+      );
+      const withinGrace = now.getTime() - expMs < IN_FLIGHT_PAYMENT_GRACE_MS;
+
+      if (hasInFlightPayment && withinGrace) {
+        status = "verifying"; // awaiting gateway confirmation — do NOT cancel
+        isExpired = false;
+        remainingSeconds = 0;
+      } else {
+        await prisma.booking.updateMany({
+          where: { id: booking.id, status: "pending", paymentStatus: { not: "paid" } },
+          data: {
+            status: "cancelled",
+            paymentStatus: "failed",
+            cancellationReason: "hold_expired",
+          },
+        });
+        status = "expired";
+        isExpired = true;
+        remainingSeconds = 0;
+      }
+    } else if (expMs) {
+      remainingSeconds = Math.max(0, Math.floor((expMs - now.getTime()) / 1000));
+      status = "pending";
+      isExpired = false;
+    }
+  }
+
   return {
     bookingId: booking.id,
     status,
     isExpired,
+    isVerifying: status === "verifying",
     isPaid: booking.paymentStatus === "paid",
     paymentStatus: booking.paymentStatus,
+    cancellationReason: booking.cancellationReason || (status === "expired" ? "hold_expired" : null),
+    cancellation: status === "expired"
+      ? formatBookingCancellation({
+        ...booking,
+        status: "cancelled",
+        cancellationReason: "hold_expired",
+        paymentStatus: "failed",
+      })
+      : formatBookingCancellation(booking),
     expiresAt: booking.expiresAt,
     remainingSeconds,
     courtId: booking.courtId,
@@ -2734,9 +2827,11 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
       throw err;
     }
 
-    // Determine refund eligibility (24 hours window)
-    let refundIssued = false;
+    // Determine refund eligibility (24 hours window). The intent is committed in this
+    // transaction; the Paymob call happens only after it commits.
+    let refundPending = false;
     let refundAmount = 0;
+    let postCommitRefund = null;
 
     const paidPayment = existing.payments?.find(
       (p) => p.status === "paid" && p.paymobTransactionId
@@ -2744,36 +2839,34 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
 
     if (existing.paymentStatus === "paid" && paidPayment) {
       if (hoursUntilMatch >= 24) {
-        // >= 24 hours: eligible for automated refund
-        try {
-          const refundRes = await refundTransaction({
-            transactionId: paidPayment.paymobTransactionId,
-            amountCents: paidPayment.amountCents || Math.round(Number(paidPayment.amount) * 100),
-          });
-
-          await tx.payment.update({
-            where: { id: paidPayment.id },
-            data: {
-              status: "refunded",
-              rawCallbackData: refundRes,
-            },
-          });
-
-          refundIssued = true;
-          refundAmount = Number(paidPayment.amount);
-        } catch (refundErr) {
-          console.error(`[Auto-Refund Warning] Failed to issue automated refund for booking ${id}:`, refundErr);
-        }
+        const refundAmountCents = paidPayment.amountCents || Math.round(Number(paidPayment.amount) * 100);
+        await tx.payment.update({
+          where: { id: paidPayment.id },
+          data: {
+            status: "refund_pending",
+            refundRequestedCents: refundAmountCents,
+            refundClaimedAt: null,
+          },
+        });
+        refundPending = true;
+        refundAmount = refundAmountCents / 100;
+        postCommitRefund = {
+          paymentId: paidPayment.id,
+          transactionId: paidPayment.paymobTransactionId,
+          amountCents: refundAmountCents,
+        };
       }
     }
 
-    const newPaymentStatus = refundIssued ? "refunded" : existing.paymentStatus;
+    const newPaymentStatus = refundPending ? "refund_pending" : existing.paymentStatus;
+    const cancellationReason = currentUser.role === "player" ? "player" : "manager";
 
     const updated = await tx.booking.update({
       where: { id },
       data: {
         status: "cancelled",
         paymentStatus: newPaymentStatus,
+        cancellationReason,
       },
       include: bookingDetailsInclude,
     });
@@ -2785,28 +2878,48 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
       buildBookingCancelledNotifications(updated, currentUser),
     );
 
-    let message = "";
-    if (refundIssued) {
-      message = isAr
-        ? `تم إلغاء الحجز بنجاح واسترداد مبلغ ${refundAmount} ج.م تلقائياً إلى بطاقتك البنكية.`
-        : `Booking cancelled successfully. A refund of ${refundAmount} EGP has been issued to your bank card.`;
-    } else if (existing.paymentStatus === "paid" && hoursUntilMatch < 24) {
-      message = isAr
+    const message = existing.paymentStatus === "paid" && hoursUntilMatch < 24
+      ? isAr
         ? "تم إلغاء الحجز. نظراً للإلغاء قبل أقل من 24 ساعة، لا يمكن استرداد العربون وفقاً لسياسة الإلغاء للملعب."
-        : "Booking cancelled. Per venue policy, cancellations within 24 hours are non-refundable.";
-    } else {
-      message = isAr ? "تم إلغاء الحجز بنجاح." : "Booking cancelled successfully.";
-    }
+        : "Booking cancelled. Per venue policy, cancellations within 24 hours are non-refundable."
+      : refundPending
+        ? isAr
+          ? `تم إلغاء الحجز بنجاح. جارٍ استرداد مبلغ ${refundAmount} ج.م إلى وسيلة الدفع الأصلية.`
+          : `Booking cancelled successfully. Your ${refundAmount} EGP refund is being processed to the original payment method.`
+        : isAr ? "تم إلغاء الحجز بنجاح." : "Booking cancelled successfully.";
 
     return {
       booking: formatBooking(updated),
-      refundIssued,
+      refundIssued: false,
+      refundPending,
       refundAmount,
       hoursUntilMatch: Math.max(0, Math.round(hoursUntilMatch * 10) / 10),
       message,
+      postCommitRefund,
     };
   });
 
+  if (result.postCommitRefund) {
+    const refundIssued = await attemptRefundSettlement(
+      result.postCommitRefund.paymentId,
+      result.postCommitRefund,
+    );
+    result.refundIssued = refundIssued;
+    result.refundPending = !refundIssued;
+
+    if (refundIssued) {
+      const settledBooking = await prisma.booking.findUnique({
+        where: { id },
+        include: bookingDetailsInclude,
+      });
+      if (settledBooking) result.booking = formatBooking(settledBooking);
+      result.message = isAr
+        ? `تم إلغاء الحجز بنجاح واسترداد مبلغ ${result.refundAmount} ج.م تلقائياً إلى بطاقتك البنكية.`
+        : `Booking cancelled successfully. A refund of ${result.refundAmount} EGP has been issued to your bank card.`;
+    }
+  }
+
+  delete result.postCommitRefund;
   clearAuthMeStatsCache();
   return result;
 }
@@ -3442,7 +3555,7 @@ export async function deleteBookingService(bookingId, currentUser) {
     throw error;
   }
 
-  return await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     await lockBookingRow(tx, bookingId);
 
     const existingBooking = await getBookingWithRelationsOrThrow(bookingId, tx);
@@ -3475,14 +3588,32 @@ export async function deleteBookingService(bookingId, currentUser) {
       throw error;
     }
 
+    const paidPaymobPayment = existingBooking.payments?.find(
+      (payment) => payment.status === "paid" && payment.paymobTransactionId,
+    );
+    const refundAmountCents = paidPaymobPayment?.amountCents || 0;
+    const shouldRefundPaymob = existingBooking.paymentStatus === "paid" &&
+      Boolean(paidPaymobPayment) && refundAmountCents > 0;
+
+    if (shouldRefundPaymob) {
+      await tx.payment.update({
+        where: { id: paidPaymobPayment.id },
+        data: {
+          status: "refund_pending",
+          refundRequestedCents: refundAmountCents,
+          refundClaimedAt: null,
+        },
+      });
+    }
+
     const archivedBooking = await tx.booking.update({
       where: { id: bookingId },
       data: {
         status: "cancelled",
-        paymentStatus:
-          existingBooking.paymentStatus === "paid"
-            ? "refunded"
-            : existingBooking.paymentStatus,
+        // An archive never fabricates a confirmed refund. Cash/non-Paymob records retain their
+        // actual payment state; Paymob captures enter the same durable refund outbox as a cancel.
+        paymentStatus: shouldRefundPaymob ? "refund_pending" : existingBooking.paymentStatus,
+        cancellationReason: "manager",
         notes: existingBooking.notes
           ? `${existingBooking.notes} | [Archived by Admin]`
           : "[Archived by Admin]",
@@ -3525,8 +3656,34 @@ export async function deleteBookingService(bookingId, currentUser) {
       }),
     );
 
-    return { booking: formatBooking(archivedBooking) };
+    return {
+      booking: formatBooking(archivedBooking),
+      postCommitRefund: shouldRefundPaymob
+        ? {
+          paymentId: paidPaymobPayment.id,
+          transactionId: paidPaymobPayment.paymobTransactionId,
+          amountCents: refundAmountCents,
+        }
+        : null,
+    };
   });
+
+  if (result.postCommitRefund) {
+    const refundIssued = await attemptRefundSettlement(
+      result.postCommitRefund.paymentId,
+      result.postCommitRefund,
+    );
+    result.refundIssued = refundIssued;
+    result.refundPending = !refundIssued;
+
+    if (refundIssued) {
+      const settledBooking = await getBookingOrThrow(bookingId);
+      result.booking = formatBooking(settledBooking);
+    }
+  }
+
+  delete result.postCommitRefund;
+  return result;
 }
 
 /**
@@ -3535,15 +3692,53 @@ export async function deleteBookingService(bookingId, currentUser) {
 export async function expireStaleBookingHoldsService() {
   try {
     const now = new Date();
-    const result = await prisma.booking.updateMany({
+    const graceCutoff = new Date(now.getTime() - IN_FLIGHT_PAYMENT_GRACE_MS);
+
+    // Candidate holds whose 15m TTL elapsed and that are not already paid.
+    const candidates = await prisma.booking.findMany({
       where: {
         status: "pending",
         paymentStatus: { not: "paid" },
         expiresAt: { lt: now },
       },
+      select: {
+        id: true,
+        expiresAt: true,
+        // Presence of an in-flight Paymob checkout (pending payment with a gateway order id).
+        payments: {
+          where: { status: "pending", paymobOrderId: { not: null } },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    const cancellableIds = candidates
+      .filter((b) => {
+        const hasInFlight = b.payments.length > 0;
+        // No checkout launched → release the slot as soon as the hold expires.
+        if (!hasInFlight) return true;
+        // In-flight checkout → only release once the 2-minute grace has fully elapsed. Any
+        // late webhook/inquiry that lands afterwards is reconciled (and refunded if the slot
+        // was taken) by the unified payment pipeline.
+        return b.expiresAt && b.expiresAt < graceCutoff;
+      })
+      .map((b) => b.id);
+
+    if (cancellableIds.length === 0) {
+      return 0;
+    }
+
+    const result = await prisma.booking.updateMany({
+      where: {
+        id: { in: cancellableIds },
+        status: "pending",
+        paymentStatus: { not: "paid" },
+      },
       data: {
         status: "cancelled",
         paymentStatus: "failed",
+        cancellationReason: "hold_expired",
       },
     });
     return result.count;

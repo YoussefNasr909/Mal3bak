@@ -3,6 +3,10 @@ import crypto from "crypto";
 import {
   verifyTransactionHmac,
   createPaymentIntention,
+  getPaymobAuthToken,
+  registerPaymobOrder,
+  generateWalletPaymentKey,
+  executeWalletPayment,
 } from "../../src/modules/payments/paymob.service.js";
 
 describe("Paymob Service - Unit Tests (Phase 5)", () => {
@@ -148,6 +152,119 @@ describe("Paymob Service - Unit Tests (Phase 5)", () => {
       );
 
       global.fetch = originalFetch;
+    });
+  });
+
+  describe("Direct Mobile Wallet Flow (4-Step Sequence)", () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it("should fetch Paymob Auth Token successfully", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ token: "auth_token_mock_123" }),
+      });
+
+      const token = await getPaymobAuthToken();
+      expect(token).toBe("auth_token_mock_123");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://accept.paymob.com/api/auth/tokens",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ api_key: apiKey }),
+        })
+      );
+    });
+
+    it("should register Paymob order successfully", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 987654 }),
+      });
+
+      const orderId = await registerPaymobOrder({
+        authToken: "auth_token_mock_123",
+        amountCents: 15000,
+        merchantOrderId: "booking_123_456",
+        items: [{ name: "Padel Court", amountCents: 15000, quantity: 1 }],
+      });
+
+      expect(orderId).toBe(987654);
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://accept.paymob.com/api/ecommerce/orders",
+        expect.objectContaining({
+          method: "POST",
+        })
+      );
+    });
+
+    it("should generate payment key token for wallet integration", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ token: "payment_key_token_mock_456" }),
+      });
+
+      const keyToken = await generateWalletPaymentKey({
+        authToken: "auth_token_mock_123",
+        amountCents: 15000,
+        orderId: 987654,
+        billingData: {
+          firstName: "Ahmed",
+          lastName: "Ali",
+          email: "ahmed@example.com",
+          phone: "01010101010",
+        },
+      });
+
+      expect(keyToken).toBe("payment_key_token_mock_456");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://accept.paymob.com/api/acceptance/payment_keys",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("5835572"),
+        })
+      );
+    });
+
+    it("should execute wallet pay request with normalized phone number", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          redirect_url: "https://accept.paymob.com/api/acceptance/post_pay?token=otp_token",
+          pending: true,
+          success: false,
+          id: 112233,
+        }),
+      });
+
+      const result = await executeWalletPayment({
+        paymentKeyToken: "payment_key_token_mock_456",
+        walletMobileNumber: "+201010101010",
+      });
+
+      expect(result.redirectUrl).toContain("post_pay");
+      expect(result.pending).toBe(true);
+      expect(result.transactionId).toBe(112233);
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://accept.paymob.com/api/acceptance/payments/pay",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            source: {
+              identifier: "01010101010",
+              subtype: "WALLET",
+            },
+            payment_token: "payment_key_token_mock_456",
+          }),
+        })
+      );
     });
   });
 });
