@@ -1,13 +1,19 @@
+import { prisma } from "../../db/prisma.js";
 import {
   createCheckoutSessionService,
+  initiateWalletPaymentService,
   handlePaymobWebhookService,
   getPaymentStatusService,
   refundPaymentService,
+  processDeadLetterQueueService,
 } from "./payments.service.js";
-import { createCheckoutSessionSchema } from "./payments.validation.js";
+import {
+  createCheckoutSessionSchema,
+  initiateWalletPaymentSchema,
+} from "./payments.validation.js";
 
 /**
- * Initiate checkout session for court booking
+ * Initiate checkout session for court booking (Unified Hosted Checkout)
  */
 export async function createCheckoutSession(req, res, next) {
   try {
@@ -18,6 +24,26 @@ export async function createCheckoutSession(req, res, next) {
     });
 
     res.status(201).json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Initiate direct Mobile Wallet Payment (4-Step API flow with phone number)
+ */
+export async function initiateWalletPayment(req, res, next) {
+  try {
+    const value = await initiateWalletPaymentSchema.validateAsync(req.body, { abortEarly: false });
+    const result = await initiateWalletPaymentService({
+      userId: req.user.id,
+      ...value,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
   } catch (error) {
     next(error);
   }
@@ -81,8 +107,55 @@ export async function refundPayment(req, res, next) {
 
     res.status(200).json({
       ok: true,
-      message: "Payment refunded successfully",
+      message: result.refundIssued
+        ? "Payment refunded successfully"
+        : "Refund is being processed and will be retried automatically if needed.",
       data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Get DLQ Webhook Audit Log Status (Admin only)
+ */
+export async function getDeadLetterQueueStatus(req, res, next) {
+  try {
+    const { status, limit = 50 } = req.query;
+    const where = status ? { status: String(status) } : {};
+    const logs = await prisma.webhookAuditLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: Math.min(Number(limit) || 50, 100),
+    });
+
+    res.status(200).json({
+      ok: true,
+      total: logs.length,
+      logs,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Trigger immediate DLQ retry worker (Admin only)
+ */
+export async function retryDeadLetterQueue(req, res, next) {
+  try {
+    const { maxAgeMinutes = 0, maxAttempts = 5, limit = 50 } = req.body || {};
+    const summary = await processDeadLetterQueueService({
+      maxAgeMinutes: Number(maxAgeMinutes) || 0,
+      maxAttempts: Number(maxAttempts) || 5,
+      limit: Number(limit) || 50,
+    });
+
+    res.status(200).json({
+      ok: true,
+      message: "DLQ re-processing completed",
+      summary,
     });
   } catch (error) {
     next(error);

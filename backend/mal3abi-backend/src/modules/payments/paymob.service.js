@@ -229,8 +229,151 @@ export async function inquireTransaction(transactionId) {
   });
 
   if (!txnRes.ok) {
-    throw new Error(`Transaction Inquiry failed for transaction ${transactionId}`);
+    const errorData = await txnRes.json().catch(() => ({}));
+    throw new Error(`Paymob transaction inquiry failed: ${errorData.message || JSON.stringify(errorData)}`);
   }
 
   return await txnRes.json();
+}
+
+/**
+ * Step 1: Obtain Paymob Authentication Token (Classic Flow)
+ */
+export async function getPaymobAuthToken() {
+  const apiKey = getPaymobApiKey();
+  if (!apiKey) {
+    throw new Error("PAYMOB_API_KEY is not configured");
+  }
+
+  const res = await fetch(`${getPaymobBaseUrl()}/api/auth/tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Paymob Auth Failed: ${err.detail || res.statusText}`);
+  }
+
+  const data = await res.json();
+  return data.token;
+}
+
+/**
+ * Step 2: Register Order on Paymob (Classic Flow)
+ */
+export async function registerPaymobOrder({ authToken, amountCents, merchantOrderId, items = [] }) {
+  const res = await fetch(`${getPaymobBaseUrl()}/api/ecommerce/orders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      auth_token: authToken,
+      delivery_needed: "false",
+      amount_cents: String(amountCents),
+      currency: "EGP",
+      merchant_order_id: merchantOrderId,
+      items: items.map((item) => ({
+        name: item.name || "Court Booking",
+        amount_cents: String(item.amountCents || item.amount || amountCents),
+        description: item.description || "Mal3bk Reservation",
+        quantity: String(item.quantity || 1),
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Paymob Order Registration Failed: ${JSON.stringify(err)}`);
+  }
+
+  const data = await res.json();
+  return data.id;
+}
+
+/**
+ * Step 3: Generate Payment Key Token for Wallet Integration (Classic Flow)
+ */
+export async function generateWalletPaymentKey({
+  authToken,
+  amountCents,
+  orderId,
+  billingData,
+  expirationSeconds = 3600,
+}) {
+  const integrationId = getWalletIntegrationId() || 5835572;
+
+  const payload = {
+    auth_token: authToken,
+    amount_cents: String(amountCents),
+    expiration: expirationSeconds,
+    order_id: String(orderId),
+    billing_data: {
+      first_name: billingData.firstName || "Player",
+      last_name: billingData.lastName || "User",
+      email: billingData.email || "player@mal3bk.com",
+      phone_number: billingData.phone || "01000000000",
+      apartment: "NA",
+      floor: "NA",
+      street: "NA",
+      building: "NA",
+      shipping_method: "NA",
+      postal_code: "NA",
+      city: "Cairo",
+      country: "EGY",
+      state: "Cairo",
+    },
+    currency: "EGP",
+    integration_id: integrationId,
+    lock_order_when_paid: "true",
+  };
+
+  const res = await fetch(`${getPaymobBaseUrl()}/api/acceptance/payment_keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Paymob Payment Key Generation Failed: ${JSON.stringify(err)}`);
+  }
+
+  const data = await res.json();
+  return data.token;
+}
+
+/**
+ * Step 4: Execute Wallet Pay Request (Direct OTP / Redirect URL)
+ */
+export async function executeWalletPayment({ paymentKeyToken, walletMobileNumber }) {
+  let formattedNumber = walletMobileNumber.trim().replace(/\s+/g, "").replace(/^\+20/, "0").replace(/^20/, "0");
+
+  const payload = {
+    source: {
+      identifier: formattedNumber,
+      subtype: "WALLET",
+    },
+    payment_token: paymentKeyToken,
+  };
+
+  const res = await fetch(`${getPaymobBaseUrl()}/api/acceptance/payments/pay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Paymob Wallet Pay Request Failed: ${JSON.stringify(err)}`);
+  }
+
+  const data = await res.json();
+  return {
+    redirectUrl: data.redirect_url || data.iframe_redirection_url,
+    pending: data.pending,
+    success: data.success,
+    transactionId: data.id,
+    rawResponse: data,
+  };
 }

@@ -35,3 +35,14 @@ export const createCheckoutSessionSchema = Joi.object({
 export const refundPaymentSchema = Joi.object({
   paymentId: Joi.string().uuid().required(),
 });
+
+export const initiateWalletPaymentSchema = Joi.object({
+  bookingId: Joi.string().uuid().required(),
+  walletNumber: Joi.string()
+    .trim()
+    .pattern(/^01[0125]\d{8}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Please enter a valid Egyptian mobile wallet number (e.g. 01012345678)",
+    }),
+});

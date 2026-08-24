@@ -61,9 +61,18 @@ describe("ReservationHoldPage", () => {
       expect(screen.getByText("Al Ahly Padel Court")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Proceed to Paymob Payment")).toBeInTheDocument();
+    expect(screen.getByText("Debit / Card")).toBeInTheDocument();
+    expect(screen.getByText("Mobile Wallet")).toBeInTheDocument();
+    expect(screen.getByText("Proceed with Card Payment")).toBeInTheDocument();
     expect(screen.getByText("Cancel Reservation Hold")).toBeInTheDocument();
     expect(screen.getByTestId("countdown-timer-display")).toBeInTheDocument();
+
+    // Switch to Mobile Wallet tab
+    const walletTab = screen.getByText("Mobile Wallet");
+    fireEvent.click(walletTab);
+
+    expect(screen.getByText("Wallet Mobile Number")).toBeInTheDocument();
+    expect(screen.getByText("Pay 200.00 EGP via Wallet")).toBeInTheDocument();
   });
 
   it("shows expired state when hold is expired", async () => {
