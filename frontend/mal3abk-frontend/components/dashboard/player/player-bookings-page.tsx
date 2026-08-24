@@ -23,8 +23,6 @@ import {
   Copy,
   Eye,
   QrCode,
-  Zap,
-  Loader2,
   Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -105,7 +103,6 @@ import {
   updateBookingStatus as updateBookingStatusApi,
   cancelBooking as cancelBookingApi,
   getBooking as getBookingApi,
-  createPaymobCheckoutSession,
 } from "@/lib/api";
 
 /* ---------------------------------- utils --------------------------------- */
@@ -696,57 +693,6 @@ export function PlayerBookingsPage() {
         error?.message ||
           (language === "ar" ? "فشل إلغاء الحجز" : "Failed to cancel booking"),
       );
-    }
-  };
-
-  const [isPayingPaymob, setIsPayingPaymob] = useState(false);
-
-  const handlePaymobPayForBooking = async (bookingId: string) => {
-    if (isPayingPaymob) return;
-    setIsPayingPaymob(false); // Reset immediately to allow retry
-    setIsPayingPaymob(true);
-
-    try {
-      const sessionData = await createPaymobCheckoutSession({
-        bookingId,
-      });
-
-      if (!sessionData?.checkoutUrl) {
-        throw new Error("No checkout URL received from server");
-      }
-
-      toast.loading(language === "ar" ? "جاري التحويل لصفحة باي موب..." : "Redirecting to Paymob...");
-      window.location.href = sessionData.checkoutUrl;
-    } catch (e: any) {
-      console.error("Payment initiation error:", e);
-      
-      let errorMessage = language === "ar"
-        ? "فشل بدء عملية الدفع عبر باي موب"
-        : "Paymob payment initiation failed";
-
-      // Provide more specific error messages
-      if (e?.status === 401) {
-        errorMessage = language === "ar"
-          ? "انتهت صلاحية جلستك. يرجى تسجيل الدخول مجددا"
-          : "Session expired. Please log in again";
-      } else if (e?.status === 403) {
-        errorMessage = language === "ar"
-          ? "ليس لديك صلاحية لهذه العملية"
-          : "You don't have permission for this action";
-      } else if (e?.status === 404) {
-        errorMessage = language === "ar"
-          ? "الحجز غير موجود"
-          : "Booking not found";
-      } else if (e?.name === "NetworkError") {
-        errorMessage = language === "ar"
-          ? "خطأ في الاتصال. تأكد من اتصالك بالإنترنت"
-          : "Connection error. Check your internet connection";
-      } else if (e?.message) {
-        errorMessage = e.message;
-      }
-
-      toast.error(errorMessage);
-      setIsPayingPaymob(false);
     }
   };
 
@@ -1634,39 +1580,6 @@ export function PlayerBookingsPage() {
                       );
                     })()}
 
-                    {selectedBooking.paymentStatus !== "paid" &&
-                      selectedBooking.status !== "cancelled" &&
-                      (selectedBooking as any).court?.allowOnlinePayment !== false && (
-                        <Button
-                          className="w-full rounded-xl gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-md shadow-emerald-500/20 py-3 font-semibold"
-                          onClick={() => handlePaymobPayForBooking(selectedBooking.id)}
-                          disabled={isPayingPaymob}
-                        >
-                          {isPayingPaymob ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Zap className="h-4 w-4" />
-                          )}
-                          {(() => {
-                            const policy = (selectedBooking as any).court?.paymentPolicy
-                            const depositVal = Number((selectedBooking as any).court?.depositValue ?? 0)
-                            const total = Number(selectedBooking.totalPrice ?? selectedBooking.amount ?? 0)
-                            if (policy === "percentage" && depositVal > 0) {
-                              const due = Math.round(((total * depositVal) / 100) * 100) / 100
-                              return language === "ar"
-                                ? `ادفع عربون ${depositVal}% (${due} ج.م)`
-                                : `Pay ${depositVal}% Deposit (${due} EGP)`
-                            }
-                            if (policy === "fixed" && depositVal > 0) {
-                              const due = Math.min(total, depositVal)
-                              return language === "ar"
-                                ? `ادفع عربون ${due} ج.م`
-                                : `Pay Deposit (${due} EGP)`
-                            }
-                            return language === "ar" ? "ادفع أونلاين بـ Paymob" : "Pay Online with Paymob"
-                          })()}
-                        </Button>
-                      )}
 
 
                     {canChange && (

@@ -1723,6 +1723,14 @@ export async function createBookingService(payload, currentUser) {
       tx,
     );
 
+    if (court.allowOnlinePayment === true) {
+      const err = new Error(
+        "This court requires online payment. Start checkout from the court booking page.",
+      );
+      err.status = 400;
+      throw err;
+    }
+
     await ensurePlayerAvailable(
       currentUser.id,
       payload.date,
@@ -1763,17 +1771,6 @@ export async function createBookingService(payload, currentUser) {
       finalTotalPrice = couponValidation.finalAmount;
     }
 
-    let computedAmount = finalTotalPrice;
-    if (court.paymentPolicy === "percentage") {
-      computedAmount = (finalTotalPrice * Number(court.depositValue)) / 100;
-    } else if (court.paymentPolicy === "fixed") {
-      computedAmount = Math.min(finalTotalPrice, Number(court.depositValue));
-    }
-
-    const requiresDeposit = court.allowOnlinePayment === true && court.paymentPolicy !== "full";
-    const initialStatus = requiresDeposit ? "pending" : "confirmed";
-    const initialExpiresAt = requiresDeposit ? new Date(Date.now() + 15 * 60 * 1000) : null;
-
     const booking = await tx.booking.create({
       data: {
         courtId: court.id,
@@ -1787,16 +1784,16 @@ export async function createBookingService(payload, currentUser) {
           court.useOpeningDayForOvernightBookings === true,
         duration: pricing.duration,
         totalPrice: toDecimal(finalTotalPrice),
-        amount: toDecimal(computedAmount),
+        amount: toDecimal(finalTotalPrice),
         discountType: appliedDiscountType,
         discountValue: appliedDiscountValue ? toDecimal(appliedDiscountValue) : null,
         couponId: appliedCouponId,
-        status: initialStatus,
+        status: "confirmed",
         paymentStatus: "pending",
         paymentMethod: null,
         notes: normalizeBookingNotes(payload.notes) ?? null,
         checkInCode,
-        expiresAt: initialExpiresAt,
+        expiresAt: null,
       },
       include: bookingDetailsInclude,
     });

@@ -145,7 +145,7 @@ describe("Bookings Flow", () => {
       .send({
         name: "Test Court", nameEn: "Test Court", sportType: "padel",
         city: "Cairo", cityEn: "Cairo", peakPrice: 100, offPeakPrice: 80,
-        openTime: "00:00", closeTime: "00:00"
+        openTime: "00:00", closeTime: "00:00", allowOnlinePayment: false
       });
     expect(courtRes.status).toBe(201);
     courtId = courtRes.body.court.id;
@@ -166,6 +166,32 @@ describe("Bookings Flow", () => {
     
     expect(res.status).toBe(201);
     expect(res.body.booking.id).toBeDefined();
+  });
+
+  it("should require checkout before booking an online-payment court", async () => {
+    await prisma.court.update({
+      where: { id: courtId },
+      data: { allowOnlinePayment: true },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/bookings")
+      .set("Origin", origin)
+      .set("Cookie", [playerToken])
+      .send({
+        courtId,
+        date: getTomorrowDateStr(),
+        startTime: "13:00",
+        endTime: "14:00",
+      });
+
+    await prisma.court.update({
+      where: { id: courtId },
+      data: { allowOnlinePayment: false },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error || res.body.message).toMatch(/requires online payment/i);
   });
 
   it("should store trimmed player notes when creating a booking", async () => {

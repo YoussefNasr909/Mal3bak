@@ -62,70 +62,11 @@ export async function createCheckoutSessionService({
   let bookingEndTime = endTime;
 
   if (bookingId) {
-    booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: { court: true },
-    });
-
-    if (!booking) {
-      const err = new Error("Booking not found");
-      err.status = 404;
-      throw err;
-    }
-
-    if (booking.userId !== userId) {
-      const err = new Error("Unauthorized access to this booking");
-      err.status = 403;
-      throw err;
-    }
-
-    if (["cancelled", "completed", "no_show"].includes(booking.status)) {
-      const err = new Error("This booking is no longer eligible for online payment.");
-      err.status = 400;
-      throw err;
-    }
-
-    if (booking.paymentStatus === "paid") {
-      const err = new Error("This booking has already been paid.");
-      err.status = 400;
-      throw err;
-    }
-
-    if (booking.paymentStatus === "refunded") {
-      const err = new Error("This booking has been refunded and cannot be paid again.");
-      err.status = 400;
-      throw err;
-    }
-
-    court = booking.court;
-
-    // Guard: court must allow online payments
-    if (court.allowOnlinePayment === false) {
-      const err = new Error("This court does not accept online payments.");
-      err.status = 403;
-      throw err;
-    }
-
-    const totalPrice = Number(booking.totalPrice) || Number(booking.amount) || 0;
-    amount = calculateOnlinePaymentAmount(totalPrice, court);
-
-    if (amount <= 0 || amount > totalPrice) {
-      const err = new Error("Invalid online payment amount. Amount must be greater than 0 and cannot exceed the total price of the booking.");
-      err.status = 400;
-      throw err;
-    }
-
-    amountCents = Math.round(amount * 100);
-    if (Number(booking.amount) !== amount) {
-      booking = await prisma.booking.update({
-        where: { id: booking.id },
-        data: { amount },
-        include: { court: true },
-      });
-    }
-    bookingDate = booking.date;
-    bookingStartTime = booking.startTime;
-    bookingEndTime = booking.endTime;
+    const err = new Error(
+      "Online payment must be started while selecting an available court slot.",
+    );
+    err.status = 400;
+    throw err;
   } else {
     // Validate availability and create hold atomically in a transaction
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15-minute reservation hold

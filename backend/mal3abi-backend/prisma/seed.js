@@ -509,13 +509,19 @@ function buildBookingData(court, user, start, durationHours, status, opts = {}) 
     amount,
     status,
     paymentStatus:
-      opts.paymentStatus ||
+      (status === "confirmed" && court.allowOnlinePayment === true)
+        ? "paid"
+        : opts.paymentStatus ||
       (status === "completed" || status === "no_show" || opts.checkedIn
         ? "paid"
         : status === "cancelled"
         ? "refunded"
         : "pending"),
-    paymentMethod: opts.paymentMethod ?? pick(["cash", "wallet", "card", null]),
+    paymentMethod:
+      opts.paymentMethod ??
+      (status === "confirmed" && court.allowOnlinePayment === true
+        ? "card"
+        : pick(["cash", "wallet", "card", null])),
     checkInCode: randomCode(),
     checkInVerified: Boolean(opts.checkInVerified),
     checkedIn: Boolean(opts.checkedIn),

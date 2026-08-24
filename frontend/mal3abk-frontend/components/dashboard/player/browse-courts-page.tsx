@@ -1870,7 +1870,7 @@ export function BrowseCourtsPage() {
               {t("common.cancel")}
             </Button>
             
-            <Button
+            {selectedCourt?.allowOnlinePayment !== false && <Button
               className="rounded-2xl flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all duration-200"
               onClick={handlePaymobPay}
               disabled={!canConfirm || isSubmitting}
@@ -1882,17 +1882,14 @@ export function BrowseCourtsPage() {
                 if (paymentMethodType === "card") return language === "ar" ? "ادفع بالبطاقة البنكية" : "Pay with Bank Card";
                 return language === "ar" ? "ادفع أونلاين بـ Paymob" : "Pay Online with Paymob";
               })()}
-            </Button>
+            </Button>}
 
-            <Button
-              variant="secondary"
-              className="rounded-2xl gap-2 transition-all duration-200"
-              onClick={handleConfirmBooking}
-              disabled={!canConfirm || isSubmitting}
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {language === "ar" ? "حجز بدون دفع" : "Book (Pay Later)"}
-            </Button>
+            {selectedCourt?.allowOnlinePayment === false && (
+              <Button variant="secondary" className="rounded-2xl gap-2 transition-all duration-200" onClick={handleConfirmBooking} disabled={!canConfirm || isSubmitting}>
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                {language === "ar" ? "حجز بدون دفع" : "Book (Pay Later)"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

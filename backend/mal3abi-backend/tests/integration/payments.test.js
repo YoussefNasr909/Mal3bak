@@ -231,7 +231,7 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       expect(res.status).toBe(400);
     });
 
-    it("should recalculate the deposit for an existing booking before checkout", async () => {
+    it("should reject checkout started from an existing booking", async () => {
       const booking = await prisma.booking.create({
         data: {
           courtId: managerA.courtId,
@@ -268,34 +268,14 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
         depositValue: 100,
       });
 
-      const originalFetch = global.fetch;
-      let sentAmountCents;
-      global.fetch = jest.fn().mockImplementation((url, opts) => {
-        sentAmountCents = JSON.parse(opts.body).amount;
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: "pi_test_existing_deposit",
-            client_secret: "egy_csk_test_existing_deposit",
-            intention_order_id: 445566,
-          }),
-        });
-      });
-
       const res = await request(app)
         .post("/api/v1/payments/create-checkout-session")
         .set("Origin", ORIGIN)
         .set("Cookie", [playerA.token])
         .send({ bookingId: booking.id, paymentMethodType: "card" });
 
-      expect(res.status).toBe(201);
-      expect(res.body.amount).toBe(100);
-      expect(sentAmountCents).toBe(10000);
-
-      const updatedBooking = await prisma.booking.findUnique({ where: { id: booking.id } });
-      expect(Number(updatedBooking.amount)).toBe(100);
-
-      global.fetch = originalFetch;
+      expect(res.status).toBe(400);
+      expect(res.body.error || res.body.message).toMatch(/available court slot/i);
     });
 
     it("should not create a second checkout for an already paid booking", async () => {

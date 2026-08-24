@@ -1441,7 +1441,7 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
               {t("common.cancel") ?? tr("إلغاء", "Cancel")}
             </Button>
 
-            <Button
+            {court.allowOnlinePayment !== false && <Button
               className="rounded-2xl flex-1 gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 hover:scale-[1.02] shadow-lg shadow-emerald-500/20 active:scale-95"
               onClick={handlePaymobPay}
               disabled={!selectedDate || !selectedTime || !durationFitsCourtHours || !selectionOk.ok || isSubmitting}
@@ -1453,17 +1453,14 @@ export function CourtDetailsPage({ court }: CourtDetailsPageProps) {
                 if (paymentMethodType === "card") return tr("ادفع بالبطاقة البنكية", "Pay with Bank Card");
                 return tr("ادفع أونلاين بـ Paymob", "Pay Online with Paymob");
               })()}
-            </Button>
+            </Button>}
 
-            <Button
-              variant="secondary"
-              className="rounded-2xl gap-2 transition-all duration-200 hover:scale-[1.02] active:scale-95"
-              onClick={handleConfirmBooking}
-              disabled={!selectedDate || !selectedTime || !durationFitsCourtHours || !selectionOk.ok || isSubmitting}
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {tr("حجز بدون دفع", "Book (Pay Later)")}
-            </Button>
+            {court.allowOnlinePayment === false && (
+              <Button variant="secondary" className="rounded-2xl gap-2 transition-all duration-200 hover:scale-[1.02] active:scale-95" onClick={handleConfirmBooking} disabled={!selectedDate || !selectedTime || !durationFitsCourtHours || !selectionOk.ok || isSubmitting}>
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                {tr("حجز بدون دفع", "Book (Pay Later)")}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
