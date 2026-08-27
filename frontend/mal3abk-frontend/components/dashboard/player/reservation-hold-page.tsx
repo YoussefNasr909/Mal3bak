@@ -28,7 +28,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { useLanguage } from "@/components/providers/language-provider"
-import { getBookingHoldStatus, cancelBooking } from "@/lib/api"
+import { getBookingHoldStatus, cancelBooking, createPaymobCheckoutSession } from "@/lib/api"
+import { getPaymobCheckoutUrl } from "@/lib/paymob"
 import { PaymobWalletCheckout } from "@/components/checkout/PaymobWalletCheckout"
 import type { BookingHoldStatus } from "@/lib/types"
 import { format12h } from "@/lib/time"
@@ -39,7 +40,7 @@ interface ReservationHoldPageProps {
   initialCheckoutUrl?: string | null
 }
 
-const TOTAL_HOLD_DURATION_SECONDS = 15 * 60 // 15 minutes = 900 seconds
+const TOTAL_HOLD_DURATION_SECONDS = 5 * 60 // 5 minutes = 300 seconds
 
 export function ReservationHoldPage({
   bookingId,
@@ -61,6 +62,7 @@ export function ReservationHoldPage({
   const [isVerifying, setIsVerifying] = useState(false)
   const [isPaid, setIsPaid] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [isRedirecting, setIsRedirecting] = useState(false)
   const [selectedMethod, setSelectedMethod] = useState<"card" | "wallet">("card")
 
   const serverExpiresAtRef = useRef<number | null>(null)
@@ -196,13 +198,44 @@ export function ReservationHoldPage({
   }
 
   // Handle Pay Action
-  const handleProceedToPayment = () => {
-    if (checkoutUrlFromQuery) {
-      window.location.href = checkoutUrlFromQuery
-    } else {
+  const handleProceedToPayment = async () => {
+    if (isRedirecting || isCancelling || isExpired || isPaid) return
+
+    try {
+      setIsRedirecting(true)
+
+      // 1. Direct query param if provided
+      if (checkoutUrlFromQuery) {
+        window.location.href = checkoutUrlFromQuery
+        return
+      }
+
+      // 2. If clientSecret exists in holdData, build unified checkout URL
+      if (holdData?.clientSecret) {
+        const url = getPaymobCheckoutUrl(holdData.clientSecret)
+        if (url) {
+          window.location.href = url
+          return
+        }
+      }
+
+      // 3. Fallback: Request/refresh checkout session for this booking from backend
+      const session = await createPaymobCheckoutSession({
+        bookingId,
+        paymentMethodType: selectedMethod === "wallet" ? "wallet" : "card",
+      })
+
+      if (session?.checkoutUrl) {
+        window.location.href = session.checkoutUrl
+      } else {
+        throw new Error(tr("تعذر إنشاء جلسة الدفع، يرجى المحاولة مرة أخرى", "Could not generate checkout session, please try again."))
+      }
+    } catch (err: any) {
+      console.error("Proceed to payment error:", err)
       toast.error(
-        tr("رابط الدفع غير متوفر، يرجى إعادة المحاولة من صفحة الملعب", "Checkout URL not available. Please try from court page."),
+        err?.message || tr("رابط الدفع غير متوفر، يرجى إعادة المحاولة من صفحة الملعب", "Checkout URL not available. Please try from court page."),
       )
+      setIsRedirecting(false)
     }
   }
 
@@ -499,11 +532,21 @@ export function ReservationHoldPage({
                     {/* Payment Method Switcher Tabs */}
                     <Button
                       onClick={handleProceedToPayment}
+                      disabled={isRedirecting || isCancelling}
                       className="w-full h-12 text-base font-bold shadow-lg shadow-primary/20 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
                     >
-                      <CreditCard className="h-5 w-5" />
-                      {tr("متابعة الدفع عبر Paymob", "Proceed to Payment via Paymob")}
-                      <ExternalLink className="h-4 w-4 ms-auto opacity-70" />
+                      {isRedirecting ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          {tr("جاري التحويل لبوابة الدفع...", "Redirecting to Paymob...")}
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="h-5 w-5" />
+                          {tr("متابعة الدفع عبر Paymob", "Proceed to Payment via Paymob")}
+                          <ExternalLink className="h-4 w-4 ms-auto opacity-70" />
+                        </>
+                      )}
                     </Button>
 
                     <Button

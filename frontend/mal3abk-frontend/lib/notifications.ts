@@ -96,7 +96,31 @@ export function getNotificationGroupLabel(key: NotificationGroupKey, language: "
   return labels[key][language]
 }
 
-export function getNotificationActionLabel(notification: Notification, language: "ar" | "en") {
+/** Cancellation / archival titles used by the backend (both English and Arabic). */
+const CANCELLED_BOOKING_PATTERNS = [
+  "cancelled",
+  "canceled",
+  "archived",
+  "إلغاء",
+  "أرشفة",
+]
+
+function isBookingCancellationNotification(notification: Notification) {
+  if (notification.category !== "booking") return false
+
+  const title = (notification.title || "").toLowerCase()
+  const titleAr = notification.titleAr || ""
+
+  return CANCELLED_BOOKING_PATTERNS.some(
+    (pattern) => title.includes(pattern) || titleAr.includes(pattern),
+  )
+}
+
+export function getNotificationActionLabel(notification: Notification, language: "ar" | "en"): string | null {
+  if (isBookingCancellationNotification(notification)) {
+    return null
+  }
+
   if (notification.category === "booking") {
     return language === "ar" ? "عرض الحجز" : "View booking"
   }

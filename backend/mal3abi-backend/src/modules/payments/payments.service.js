@@ -148,7 +148,7 @@ export async function createCheckoutSessionService({
     bookingEndTime = booking.endTime;
   } else {
     // Validate availability and create hold atomically in a transaction
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15-minute reservation hold
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute reservation hold
 
     const txResult = await prisma.$transaction(async (tx) => {
       const c = await ensureCourtAvailable(courtId, date, startTime, endTime, null, tx);

@@ -950,8 +950,8 @@ export function BrowseCourtsPage() {
 
       toast.success(
         language === "ar"
-          ? "تم حجز الملعب مؤقتاً بنجاح! متبقي 15 دقيقة لإتمام الدفع"
-          : "Reservation hold created! You have 15 minutes to complete payment",
+          ? "تم حجز الملعب مؤقتاً بنجاح! متبقي 5 دقائق لإتمام الدفع"
+          : "Reservation hold created! You have 5 minutes to complete payment",
       )
       router.push(
         `/dashboard/player/bookings/${sessionData.bookingId}/hold?checkoutUrl=${encodeURIComponent(sessionData.checkoutUrl)}`,

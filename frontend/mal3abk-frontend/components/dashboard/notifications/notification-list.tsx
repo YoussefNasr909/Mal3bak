@@ -335,14 +335,20 @@ export function NotificationList({
                       )}
                     >
                       <div className="flex min-w-0 flex-wrap items-center gap-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 rounded-full px-4 text-xs font-bold"
-                          onClick={() => void onOpenNotification(notification)}
-                        >
-                          {getNotificationActionLabel(notification, language)}
-                        </Button>
+                        {(() => {
+                          const actionLabel = getNotificationActionLabel(notification, language)
+                          if (!actionLabel) return null
+                          return (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 rounded-full px-4 text-xs font-bold"
+                              onClick={() => void onOpenNotification(notification)}
+                            >
+                              {actionLabel}
+                            </Button>
+                          )
+                        })()}
 
                         {notification.deliverySummary?.web_push?.status === "failed" ? (
                           <span className="text-[11px] font-medium text-amber-700">
