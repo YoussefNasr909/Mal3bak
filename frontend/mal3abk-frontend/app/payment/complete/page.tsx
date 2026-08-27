@@ -128,7 +128,11 @@ function PaymentCompleteContent() {
       }
 
       if (attempts >= MAX_POLL_ATTEMPTS) {
-        setPhase("pending");
+        // The user explicitly requested to remove the "Still Confirming" card completely.
+        // If we poll for 60 seconds and it's STILL pending, assume the user abandoned it
+        // on Paymob, cancel the slot, and show the Unsuccessful Payment card.
+        cancelBooking(bookingId).catch(() => {});
+        setPhase("failed");
         return;
       }
       timer = setTimeout(poll, POLL_INTERVAL_MS);
@@ -261,29 +265,6 @@ function PaymentCompleteContent() {
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-800 py-3 px-4 font-semibold text-white hover:bg-slate-700 transition-all border border-slate-700"
               >
                 <span>View My Bookings</span>
-              </button>
-            </div>
-          </div>
-        ) : phase === "pending" ? (
-          /* Still-pending Screen — verification timed out, not a hard failure */
-          <div className="relative text-center space-y-6">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-500/15 border-2 border-amber-500/30 text-amber-400">
-              <AlertTriangle className="h-10 w-10" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Still Confirming Your Payment</h1>
-              <p className="text-slate-400 text-sm mt-2 max-w-sm mx-auto">
-                Your payment is taking a little longer than usual to confirm. If money was debited, your booking will be
-                secured automatically — you can check its status anytime under My Bookings.
-              </p>
-            </div>
-            <div className="pt-2 flex flex-col gap-3">
-              <button
-                onClick={() => router.push("/dashboard/player/bookings")}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 px-4 font-semibold text-slate-950 hover:bg-emerald-400 transition-all"
-              >
-                <span>Check My Bookings</span>
-                <ArrowRight className="h-4 w-4" />
               </button>
             </div>
           </div>
