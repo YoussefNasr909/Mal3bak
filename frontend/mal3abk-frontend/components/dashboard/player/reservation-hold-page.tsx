@@ -128,6 +128,43 @@ export function ReservationHoldPage({
     [bookingId, language],
   )
 
+  // If there's no checkoutUrl it means the session was interrupted (tab/browser closed, internet
+  // dropped). Auto-cancel the pending booking once we know it's still pending, then redirect the
+  // player back to the court page so they can start fresh.
+  useEffect(() => {
+    if (checkoutUrlFromQuery) return // Normal flow — they have a live checkout URL, do nothing
+    if (!holdData) return           // Haven't loaded yet
+
+    // Only auto-cancel active pending holds — don't touch already-paid/cancelled/expired ones
+    if (holdData.status !== "pending" || holdData.isPaid || holdData.isExpired) return
+
+    let cancelled = false
+
+    const autoCancelInterrupted = async () => {
+      try {
+        await cancelBooking(bookingId, { lang: language })
+        if (cancelled) return
+        toast.info(
+          language === "ar"
+            ? "تم إلغاء الحجز تلقائياً لأن جلسة الدفع انقطعت. يمكنك الحجز مجدداً."
+            : "Your reservation was cancelled because the payment session was interrupted. You can book again.",
+          { duration: 6000 },
+        )
+        const courtId = holdData.courtId
+        router.replace(courtId ? `/dashboard/player/browse/${courtId}` : "/dashboard/player/browse")
+      } catch {
+        if (!cancelled) {
+          // If cancel fails (e.g. already cancelled), just redirect to browse
+          const courtId = holdData.courtId
+          router.replace(courtId ? `/dashboard/player/browse/${courtId}` : "/dashboard/player/browse")
+        }
+      }
+    }
+
+    autoCancelInterrupted()
+    return () => { cancelled = true }
+  }, [checkoutUrlFromQuery, holdData, bookingId, language, router])
+
   // Initial load
   useEffect(() => {
     fetchHoldStatus()
@@ -195,14 +232,10 @@ export function ReservationHoldPage({
     }
   }
 
-  // Handle Pay Action
+  // Handle Pay Action — checkoutUrl is always present at this point (no-URL case is auto-cancelled above)
   const handleProceedToPayment = () => {
     if (checkoutUrlFromQuery) {
       window.location.href = checkoutUrlFromQuery
-    } else {
-      toast.error(
-        tr("رابط الدفع غير متوفر، يرجى إعادة المحاولة من صفحة الملعب", "Checkout URL not available. Please try from court page."),
-      )
     }
   }
 
