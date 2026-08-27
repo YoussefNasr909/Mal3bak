@@ -497,52 +497,14 @@ export function ReservationHoldPage({
                 ) : (
                   <div className="space-y-4">
                     {/* Payment Method Switcher Tabs */}
-                    <div className="grid grid-cols-2 p-1 rounded-xl bg-muted/60 border border-border/60 gap-1 text-xs font-semibold">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMethod("card")}
-                        className={cn(
-                          "flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg transition-all cursor-pointer",
-                          selectedMethod === "card"
-                            ? "bg-background text-foreground shadow-sm font-bold"
-                            : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        <CreditCard className="h-4 w-4 text-emerald-500 shrink-0" />
-                        <span>{tr("بطاقة بنكية", "Debit / Card")}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMethod("wallet")}
-                        className={cn(
-                          "flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg transition-all cursor-pointer",
-                          selectedMethod === "wallet"
-                            ? "bg-background text-foreground shadow-sm font-bold"
-                            : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        <Smartphone className="h-4 w-4 text-orange-500 shrink-0" />
-                        <span>{tr("محفظة إلكترونية", "Mobile Wallet")}</span>
-                      </button>
-                    </div>
-
-                    {selectedMethod === "card" ? (
-                      <Button
-                        onClick={handleProceedToPayment}
-                        className="w-full h-12 text-base font-bold shadow-lg shadow-primary/20 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
-                      >
-                        <CreditCard className="h-5 w-5" />
-                        {tr("متابعة الدفع بالبطاقة عبر Paymob", "Proceed with Card Payment")}
-                        <ExternalLink className="h-4 w-4 ms-auto opacity-70" />
-                      </Button>
-                    ) : (
-                      <PaymobWalletCheckout
-                        bookingId={bookingId}
-                        amountCents={Math.round((holdData?.amount || holdData?.totalPrice || 0) * 100)}
-                        courtName={courtName}
-                      />
-                    )}
+                    <Button
+                      onClick={handleProceedToPayment}
+                      className="w-full h-12 text-base font-bold shadow-lg shadow-primary/20 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
+                    >
+                      <CreditCard className="h-5 w-5" />
+                      {tr("متابعة الدفع عبر Paymob", "Proceed to Payment via Paymob")}
+                      <ExternalLink className="h-4 w-4 ms-auto opacity-70" />
+                    </Button>
 
                     <Button
                       onClick={handleCancelHold}

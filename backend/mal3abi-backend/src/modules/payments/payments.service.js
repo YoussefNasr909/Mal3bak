@@ -828,16 +828,8 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
             },
           });
 
-          // If hold TTL has passed or explicit fatal error, cancel booking
-          const parentBooking = await tx.booking.findUnique({
-            where: { id: payment.bookingId },
-            select: { expiresAt: true },
-          });
-
-          // Only an explicit decline cancels the hold here. A merely-pending late callback is
-          // left for the grace-window cleaner so an in-flight retry is never prematurely killed.
-          const isHoldExpired = parentBooking?.expiresAt && parentBooking.expiresAt < new Date();
-          if (isHoldExpired && newStatus === "failed") {
+          // If explicit fatal error, immediately cancel the booking so the player can re-book
+          if (newStatus === "failed") {
             await tx.booking.updateMany({
               where: { id: payment.bookingId, status: "pending", paymentStatus: { not: "paid" } },
               data: {
@@ -1060,6 +1052,33 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
             amountCents: postCommitRefund.amountCents,
           });
         }
+      } else if (inquiryResult?.success === false || inquiryResult?.error_occured) {
+        // If the inquiry confirms an explicit failure (e.g. max retries, declined), immediately 
+        // cancel the booking hold so the player can re-book, acting as a fallback for the webhook.
+        await prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${String(activeTxId)}))`;
+          const freshPayment = await tx.payment.findUnique({ where: { id: latestPayment.id } });
+          if (!freshPayment || freshPayment.status !== "pending") return;
+
+          await tx.payment.update({
+            where: { id: freshPayment.id },
+            data: {
+              status: "failed",
+              paymobTransactionId: String(activeTxId),
+              rawCallbackData: inquiryResult,
+            },
+          });
+
+          await tx.booking.updateMany({
+            where: { id: bookingId, status: "pending", paymentStatus: { not: "paid" } },
+            data: {
+              status: "cancelled",
+              paymentStatus: "failed",
+              cancellationReason: "system",
+            },
+          });
+        });
+      }
 
         // Reflect the settled state (confirmed OR refund_pending) in the response payload.
         const refreshed = await prisma.booking.findUnique({
@@ -1087,7 +1106,6 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
           booking.cancellationReason = refreshed.cancellationReason;
           latestPayment = refreshed.payments[0] || latestPayment;
         }
-      }
     } catch (error) {
       console.error("Paymob Inquiry API Fallback Error:", error);
       const err = new Error("Failed to verify payment status with payment provider. Please try again later.");

@@ -528,7 +528,7 @@ export function PlayerBookingsPage() {
         openTime,
         b.useOpeningDayForOvernightBookings === true,
       );
-      return endMs > nowMs && b.status === "confirmed";
+      return endMs > nowMs && (b.status === "confirmed" || b.status === "pending");
     }).length;
 
     const totalHours = allPlayerBookings.reduce(

@@ -25,6 +25,7 @@ interface BookingStatusData {
     status: string;
     paymentStatus: string;
     checkInCode: string;
+    courtId?: string;
     court?: {
       name: string;
       nameEn?: string;
@@ -291,7 +292,13 @@ function PaymentCompleteContent() {
 
             <div className="pt-4 flex flex-col gap-3">
               <button
-                onClick={() => router.push("/dashboard/player/browse")}
+                onClick={() => {
+                  if (data?.booking?.courtId) {
+                    router.push(`/dashboard/player/browse/${data.booking.courtId}`);
+                  } else {
+                    router.push("/dashboard/player/browse");
+                  }
+                }}
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-800 py-3 px-4 font-semibold text-white hover:bg-slate-700 transition-all border border-slate-700"
               >
                 <span>Try Booking Again</span>

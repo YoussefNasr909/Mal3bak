@@ -1643,66 +1643,7 @@ export function BrowseCourtsPage() {
                 )}
               </div>
 
-              {/* Payment Method Selector */}
-              {selectedCourt?.allowOnlinePayment !== false && (
-                <div className="space-y-2.5 rounded-2xl bg-muted/30 border border-border/70 p-3.5">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                      <Zap className="h-3.5 w-3.5 text-primary" />
-                      {language === "ar" ? "اختر وسيلة الدفع أونلاين" : "Select Payment Method"}
-                    </Label>
-                    <span className="text-[10px] text-muted-foreground bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
-                      Paymob Egypt
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethodType("card")}
-                      className={cn(
-                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
-                        paymentMethodType === "card"
-                          ? "bg-primary/15 border-primary text-primary shadow-sm ring-2 ring-primary"
-                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
-                      )}
-                    >
-                      <CreditCard className="h-5 w-5 mb-1 text-primary" />
-                      <span className="text-xs font-extrabold">{language === "ar" ? "بطاقة بنكية" : "Bank Card"}</span>
-                      <span className="text-[9px] opacity-70">Visa / Master</span>
-                    </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethodType("wallet")}
-                      className={cn(
-                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
-                        paymentMethodType === "wallet"
-                          ? "bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-sm ring-2 ring-emerald-500"
-                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
-                      )}
-                    >
-                      <Smartphone className="h-5 w-5 mb-1 text-emerald-500" />
-                      <span className="text-xs font-extrabold">{language === "ar" ? "محفظة كاش" : "Wallet"}</span>
-                      <span className="text-[9px] opacity-70">Vodafone / Cash</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethodType("apple_pay")}
-                      className={cn(
-                        "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all duration-200 cursor-pointer",
-                        paymentMethodType === "apple_pay"
-                          ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 shadow-sm ring-2 ring-amber-500"
-                          : "bg-background/80 border-border/60 hover:bg-background text-muted-foreground"
-                      )}
-                    >
-                      <Zap className="h-5 w-5 mb-1 text-amber-500" />
-                      <span className="text-xs font-extrabold">Apple Pay</span>
-                      <span className="text-[9px] opacity-70">{language === "ar" ? "أبل باي" : "Apple Pay"}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {/* Note to venue */}
               <div className="space-y-2">

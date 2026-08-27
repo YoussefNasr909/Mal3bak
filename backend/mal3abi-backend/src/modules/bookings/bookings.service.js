@@ -1249,11 +1249,11 @@ function matchesBookingBucket(booking, bucket) {
   const nowMs = Date.now();
 
   if (bucket === "upcoming") {
-    return booking.status === "confirmed" && endMs > nowMs;
+    return (booking.status === "confirmed" || booking.status === "pending") && endMs > nowMs;
   }
 
   if (bucket === "history") {
-    return !(booking.status === "confirmed" && endMs > nowMs);
+    return !((booking.status === "confirmed" || booking.status === "pending") && endMs > nowMs);
   }
 
   if (bucket === "past") {
