@@ -14,7 +14,7 @@ import {
   RotateCcw,
   AlertTriangle,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, cancelBooking } from "@/lib/api";
 
 interface BookingStatusData {
   booking: {
@@ -104,6 +104,17 @@ function PaymentCompleteContent() {
         const result = await apiFetch<BookingStatusData>(`/payments/status/${bookingId}${txIdParam}`);
         if (cancelled) return;
         setData(result);
+
+        // If Paymob explicitly told us the user cancelled or was declined via the redirect query string,
+        // we can safely trust it (forging a failure only hurts the user) and abort the loop immediately.
+        if (searchParams.get("success") === "false") {
+          // Fire off a background cancel to ensure the slot is instantly freed, 
+          // even if the backend webhook hasn't arrived or the inquiry still says "pending".
+          cancelBooking(bookingId).catch(() => {});
+          setPhase("failed");
+          refreshNotificationsOnce();
+          return;
+        }
 
         const resolved = derivePhase(result);
         if (resolved) {
