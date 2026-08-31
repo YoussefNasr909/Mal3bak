@@ -166,7 +166,7 @@ function CourtCard({
   const showPeakRange = maxPrice > minPrice
 
   return (
-    <Card className="group relative overflow-hidden border-2 border-border/50 bg-card/50 backdrop-blur-sm hover:border-primary/30 hover:shadow-xl transition-all duration-300 hover-lift">
+    <Card className="group relative flex flex-col h-full overflow-hidden border-2 border-border/50 bg-card/50 backdrop-blur-sm hover:border-primary/30 hover:shadow-xl transition-all duration-300 hover-lift">
       <button
         type="button"
         aria-label={language === "ar" ? "إضافة للمفضلة" : "Add to favorites"}
@@ -179,8 +179,8 @@ function CourtCard({
         <Heart className={cn("h-5 w-5", isFav && "fill-current")} />
       </button>
 
-      <Link href={`/dashboard/player/browse/${court.id}`} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-        <div className="relative aspect-[5/4] overflow-hidden">
+      <Link href={`/dashboard/player/browse/${court.id}`} className="flex flex-col flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+        <div className="relative aspect-[5/4] overflow-hidden shrink-0">
           <Image
             src={img}
             alt={title}
@@ -235,7 +235,7 @@ function CourtCard({
         </CardContent>
       </Link>
 
-      <CardContent className="px-4 sm:px-5 pb-4 sm:pb-5 pt-0">
+      <CardContent className="px-4 sm:px-5 pb-4 sm:pb-5 pt-0 mt-auto">
         <div className="flex items-center justify-between pt-4 border-t border-border/40">
           <div className="flex flex-col">
             <div className="flex items-baseline gap-1">
@@ -264,8 +264,8 @@ function CourtCard({
 
 function CourtCardSkeleton() {
   return (
-    <Card className="overflow-hidden border-2 border-border/50 bg-card/50 backdrop-blur-sm">
-      <div className="relative aspect-[5/4] overflow-hidden">
+    <Card className="flex flex-col h-full overflow-hidden border-2 border-border/50 bg-card/50 backdrop-blur-sm">
+      <div className="relative aspect-[5/4] overflow-hidden shrink-0">
         <Skeleton className="h-full w-full rounded-none" />
         <div className="absolute top-3 start-3 flex items-center gap-2">
           <Skeleton className="h-6 w-20 rounded-full bg-background/70" />
@@ -286,7 +286,7 @@ function CourtCardSkeleton() {
         </div>
       </CardContent>
 
-      <CardContent className="px-5 pb-5 pt-0">
+      <CardContent className="px-5 pb-5 pt-0 mt-auto">
         <div className="flex items-center justify-between border-t border-border/50 pt-4">
           <div className="space-y-2">
             <Skeleton className="h-4 w-12" />
@@ -1302,7 +1302,7 @@ export function BrowseCourtsPage() {
               ) : (
                 <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                   {pageSlice.map((court, i) => (
-                    <AnimatedContainer key={court.id} animation="fade-up" delay={60 + i * 20}>
+                    <AnimatedContainer key={court.id} animation="fade-up" delay={60 + i * 20} className="h-full">
                       <CourtCard
                         court={court}
                         language={language}

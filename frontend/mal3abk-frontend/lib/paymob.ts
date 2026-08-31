@@ -4,8 +4,9 @@ export const PAYMOB_BASE_URL = process.env.NEXT_PUBLIC_PAYMOB_BASE_URL || "https
 /**
  * Returns the hosted Unified Checkout URL for redirection.
  */
-export function getPaymobCheckoutUrl(clientSecret: string): string {
+export function getPaymobCheckoutUrl(clientSecret: string): string | null {
   const publicKey = PAYMOB_PUBLIC_KEY;
+  if (!publicKey) return null;
   return `${PAYMOB_BASE_URL}/unifiedcheckout/?publicKey=${publicKey}&clientSecret=${clientSecret}`;
 }
 

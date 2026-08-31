@@ -317,6 +317,18 @@ export async function initiateWalletPaymentService({ userId, bookingId, walletNu
     throw err;
   }
 
+  if (booking.paymentStatus === "refunded") {
+    const err = new Error("This booking has been refunded and cannot be paid again.");
+    err.status = 400;
+    throw err;
+  }
+
+  if (["cancelled", "completed", "no_show"].includes(booking.status)) {
+    const err = new Error("This booking is no longer eligible for online payment.");
+    err.status = 400;
+    throw err;
+  }
+
   if (booking.expiresAt && new Date(booking.expiresAt) < new Date()) {
     const err = new Error("Reservation hold has expired. Please select a new slot.");
     err.status = 410;
@@ -861,10 +873,7 @@ export async function handlePaymobWebhookService(body, receivedHmac) {
     // Settle any required refund OUTSIDE the committed transaction (outbox pattern). On
     // failure the payment stays `refund_pending` and the refund outbox worker retries it.
     if (postCommitRefund) {
-      await attemptRefundSettlement(postCommitRefund.paymentId, {
-        transactionId: postCommitRefund.transactionId,
-        amountCents: postCommitRefund.amountCents,
-      });
+      await attemptRefundSettlement(postCommitRefund.paymentId);
     }
 
     if (result?.rejected) {
@@ -1047,10 +1056,7 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
         });
 
         if (postCommitRefund) {
-          await attemptRefundSettlement(postCommitRefund.paymentId, {
-            transactionId: postCommitRefund.transactionId,
-            amountCents: postCommitRefund.amountCents,
-          });
+          await attemptRefundSettlement(postCommitRefund.paymentId);
         }
       } else if (inquiryResult?.success === false || inquiryResult?.error_occured) {
         // If the inquiry confirms an explicit failure (e.g. max retries, declined), immediately 
@@ -1080,32 +1086,32 @@ export async function getPaymentStatusService(bookingId, currentUser, transactio
         });
       }
 
-        // Reflect the settled state (confirmed OR refund_pending) in the response payload.
-        const refreshed = await prisma.booking.findUnique({
-          where: { id: bookingId },
-          include: {
-            payments: { orderBy: { createdAt: "desc" }, take: 1 },
-            court: {
-              select: {
-                id: true,
-                managerId: true,
-                name: true,
-                nameEn: true,
-                images: true,
-                address: true,
-                paymentPolicy: true,
-                depositValue: true,
-                allowOnlinePayment: true,
-              },
+      // Reflect the settled state (confirmed OR refund_pending) in the response payload.
+      const refreshed = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: {
+          payments: { orderBy: { createdAt: "desc" }, take: 1 },
+          court: {
+            select: {
+              id: true,
+              managerId: true,
+              name: true,
+              nameEn: true,
+              images: true,
+              address: true,
+              paymentPolicy: true,
+              depositValue: true,
+              allowOnlinePayment: true,
             },
           },
-        });
-        if (refreshed) {
-          booking.status = refreshed.status;
-          booking.paymentStatus = refreshed.paymentStatus;
-          booking.cancellationReason = refreshed.cancellationReason;
-          latestPayment = refreshed.payments[0] || latestPayment;
-        }
+        },
+      });
+      if (refreshed) {
+        booking.status = refreshed.status;
+        booking.paymentStatus = refreshed.paymentStatus;
+        booking.cancellationReason = refreshed.cancellationReason;
+        latestPayment = refreshed.payments[0] || latestPayment;
+      }
     } catch (error) {
       console.error("Paymob Inquiry API Fallback Error:", error);
       const err = new Error("Failed to verify payment status with payment provider. Please try again later.");
@@ -1183,7 +1189,7 @@ export async function refundPaymentService(paymentIdOrBookingId, currentUser, cu
 
   const refundAmountCents = customAmount
     ? Math.round(Number(customAmount) * 100)
-    : (payment.amountCents || Math.round(Number(payment.amount) * 100));
+    : payment.amountCents;
 
   if (!Number.isInteger(refundAmountCents) || refundAmountCents <= 0) {
     const err = new Error("Refund amount must be a positive amount in whole cents.");
@@ -1226,10 +1232,7 @@ export async function refundPaymentService(paymentIdOrBookingId, currentUser, cu
   });
 
   // Outbox fast path: a failure remains refund_pending and is retried by the 60-second worker.
-  const refundIssued = await attemptRefundSettlement(payment.id, {
-    transactionId: payment.paymobTransactionId,
-    amountCents: refundAmountCents,
-  });
+  const refundIssued = await attemptRefundSettlement(payment.id);
 
   const updatedPayment = refundIssued
     ? await prisma.payment.findUnique({ where: { id: payment.id } })

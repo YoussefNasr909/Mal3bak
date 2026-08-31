@@ -2262,14 +2262,14 @@ case 5:
         whileHover={isMobile || prefersReducedMotion ? undefined : { y: -4 }}
         transition={{ type: "spring", stiffness: 260, damping: 22 }}
         className={cn(
-          "group overflow-hidden border-border/50 cursor-pointer hover:shadow-lg hover:shadow-primary/5",
+          "group overflow-hidden border-border/50 cursor-pointer hover:shadow-lg hover:shadow-primary/5 flex flex-col h-full",
         )}
         onClick={(e) => {
           if (e.defaultPrevented) return;
           openView(court);
         }}
       >
-        <div className="relative aspect-[16/9] bg-muted overflow-hidden">
+        <div className="relative aspect-[16/9] bg-muted overflow-hidden shrink-0">
           <NextImage
             src={cover}
             alt={language === "ar" ? (court as any).name : (court as any).nameEn}
@@ -2448,7 +2448,7 @@ case 5:
           </div>
         </div>
 
-        <CardContent className="p-4">
+        <CardContent className="p-4 flex flex-col flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge variant="primary">
               {language === "ar"
@@ -2473,7 +2473,7 @@ case 5:
             )}
           </div>
 
-          <SoftDivider className="my-4" />
+          <SoftDivider className="mt-auto mb-4 pt-4" />
 
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-2xl border border-border/50 bg-muted/20 p-3 text-center">

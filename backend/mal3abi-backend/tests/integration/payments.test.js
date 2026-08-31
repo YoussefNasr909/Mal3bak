@@ -84,7 +84,7 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       expect(res.status).toBe(401);
     });
 
-    it("should create a pending booking with a 15-minute hold (expiresAt)", async () => {
+    it("should create a pending booking with a 5-minute hold (expiresAt)", async () => {
       const originalFetch = global.fetch;
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
@@ -122,8 +122,8 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       expect(createdBooking.expiresAt).not.toBeNull();
 
       const holdTimeMs = new Date(createdBooking.expiresAt).getTime();
-      expect(holdTimeMs).toBeGreaterThanOrEqual(beforeCreation + 14 * 60 * 1000);
-      expect(holdTimeMs).toBeLessThanOrEqual(beforeCreation + 16 * 60 * 1000);
+      expect(holdTimeMs).toBeGreaterThanOrEqual(beforeCreation + 4 * 60 * 1000);
+      expect(holdTimeMs).toBeLessThanOrEqual(beforeCreation + 6 * 60 * 1000);
 
       global.fetch = originalFetch;
     });
@@ -233,8 +233,9 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
       expect(res.status).toBe(400);
     });
 
-    it("should reject checkout started from an existing booking", async () => {
-      const booking = await prisma.booking.create({
+    it("should reject a new checkout when the time slot is already occupied", async () => {
+      // Create a confirmed booking that occupies the 13:00-14:00 slot
+      await prisma.booking.create({
         data: {
           courtId: managerA.courtId,
           userId: playerA.userId,
@@ -246,10 +247,9 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
           duration: 60,
           totalPrice: 190,
           amount: 190,
-          status: "pending",
-          paymentStatus: "pending",
+          status: "confirmed",
+          paymentStatus: "paid",
           checkInCode: `DEP${Date.now()}`,
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
         },
       });
 
@@ -258,26 +258,30 @@ describe("Payments Module - Integration Tests (Phase 5)", () => {
         data: { paymentPolicy: "fixed", depositValue: 100, allowOnlinePayment: true },
       });
 
-      const bookingsRes = await request(app)
-        .get("/api/v1/bookings?mine=true")
-        .set("Origin", ORIGIN)
-        .set("Cookie", [playerA.token]);
-      const playerBooking = bookingsRes.body.items?.find((item) => item.id === booking.id);
-      expect(bookingsRes.status).toBe(200);
-      expect(playerBooking.court).toMatchObject({
-        allowOnlinePayment: true,
-        paymentPolicy: "fixed",
-        depositValue: 100,
-      });
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn();
 
-      const res = await request(app)
-        .post("/api/v1/payments/create-checkout-session")
-        .set("Origin", ORIGIN)
-        .set("Cookie", [playerA.token])
-        .send({ bookingId: booking.id, paymentMethodType: "card" });
+      try {
+        // Attempt a NEW checkout (courtId path, no bookingId) for the same occupied slot
+        const res = await request(app)
+          .post("/api/v1/payments/create-checkout-session")
+          .set("Origin", ORIGIN)
+          .set("Cookie", [playerB.token])
+          .send({
+            courtId: managerA.courtId,
+            date: testDate,
+            startTime: "13:00",
+            endTime: "14:00",
+            paymentMethodType: "card",
+          });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error || res.body.message).toMatch(/available court slot/i);
+        expect(res.status).toBe(409);
+        expect(res.body.error || res.body.message).toMatch(/no longer available|already booked|not available/i);
+        // Paymob should never be called when the slot is taken
+        expect(global.fetch).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
 
     it("should not create a second checkout for an already paid booking", async () => {

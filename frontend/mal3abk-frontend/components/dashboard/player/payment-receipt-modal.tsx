@@ -301,9 +301,9 @@ ${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md p-0 overflow-hidden border-border/80 shadow-2xl rounded-3xl bg-card">
+      <DialogContent className="max-w-md p-0 flex flex-col max-h-[90dvh] overflow-hidden border-border/80 shadow-2xl rounded-3xl bg-card">
         {/* Printable Receipt Paper Container */}
-        <div ref={receiptRef} className="p-6 space-y-5 bg-card">
+        <div ref={receiptRef} className="p-4 sm:p-6 space-y-4 sm:space-y-5 bg-card overflow-y-auto">
           {/* Receipt Header */}
           <div className="text-center space-y-2 pb-4 border-b border-dashed border-border">
             <div className="inline-flex items-center justify-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
@@ -409,10 +409,10 @@ ${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using 
           </div>
 
           {/* Official Check-In Code Highlight Box */}
-          <div className="rounded-2xl bg-gradient-to-b from-primary/10 to-primary/5 border-2 border-dashed border-primary/40 p-4 text-center space-y-1.5">
+          <div className="rounded-2xl bg-gradient-to-b from-primary/10 to-primary/5 border-2 border-dashed border-primary/40 p-3 sm:p-4 text-center space-y-1.5">
             <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary">
               <QrCode className="h-3.5 w-3.5" />
-              {tr("كود الدخول المعتمد عند الوصول للملعب", "Official Check-In Code at Venue")}
+              {tr("كود الدخول المعتمد عند الوصول", "Official Check-In Code")}
             </div>
             <div className="text-2xl sm:text-3xl font-black font-mono tracking-widest text-primary selection:bg-primary/20">
               {booking.checkInCode || "------"}
@@ -429,7 +429,7 @@ ${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using 
         </div>
 
         {/* Action Buttons */}
-        <div className="p-4 bg-muted/40 border-t border-border flex items-center justify-between gap-2">
+        <div className="p-4 bg-muted/40 border-t border-border flex shrink-0 items-center justify-between gap-2">
           <Button
             type="button"
             variant="outline"

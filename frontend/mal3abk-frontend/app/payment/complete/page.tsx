@@ -110,7 +110,7 @@ function PaymentCompleteContent() {
         if (searchParams.get("success") === "false") {
           // Fire off a background cancel to ensure the slot is instantly freed, 
           // even if the backend webhook hasn't arrived or the inquiry still says "pending".
-          cancelBooking(bookingId).catch(() => {});
+          cancelBooking(bookingId!).catch(() => {});
           setPhase("failed");
           refreshNotificationsOnce();
           return;
@@ -131,7 +131,7 @@ function PaymentCompleteContent() {
         // The user explicitly requested to remove the "Still Confirming" card completely.
         // If we poll for 60 seconds and it's STILL pending, assume the user abandoned it
         // on Paymob, cancel the slot, and show the Unsuccessful Payment card.
-        cancelBooking(bookingId).catch(() => {});
+        cancelBooking(bookingId!).catch(() => {});
         setPhase("failed");
         return;
       }

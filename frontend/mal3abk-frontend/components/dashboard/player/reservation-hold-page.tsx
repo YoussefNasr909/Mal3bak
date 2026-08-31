@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
 import { useLanguage } from "@/components/providers/language-provider"
 import { getBookingHoldStatus, cancelBooking, createPaymobCheckoutSession } from "@/lib/api"
@@ -65,6 +66,7 @@ export function ReservationHoldPage({
   const [isCancelling, setIsCancelling] = useState(false)
   const [isRedirecting, setIsRedirecting] = useState(false)
   const [selectedMethod, setSelectedMethod] = useState<"card" | "wallet">("card")
+  const [agreedToPolicies, setAgreedToPolicies] = useState(false)
 
   const serverExpiresAtRef = useRef<number | null>(null)
 
@@ -531,58 +533,71 @@ export function ReservationHoldPage({
                 ) : (
                   <div className="space-y-4">
                     {/* Legal Checkout Disclaimer */}
-                    <p className="text-xs text-muted-foreground text-center mt-4 mb-2 leading-relaxed">
-                      {isAr ? (
-                        <>
-                          بمتابعة الدفع، فإنك توافق على{" "}
-                          <Link
-                            href="/policies#privacy"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline hover:text-primary/80 font-medium"
-                          >
-                            سياسة الخصوصية
-                          </Link>{" "}
-                          و{" "}
-                          <Link
-                            href="/policies#refund"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline hover:text-primary/80 font-medium"
-                          >
-                            سياسة الاسترجاع
-                          </Link>{" "}
-                          الخاصة بنا.
-                        </>
-                      ) : (
-                        <>
-                          By proceeding with your payment, you agree to our{" "}
-                          <Link
-                            href="/policies#privacy"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline hover:text-primary/80 font-medium"
-                          >
-                            Privacy Policy
-                          </Link>{" "}
-                          and{" "}
-                          <Link
-                            href="/policies#refund"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline hover:text-primary/80 font-medium"
-                          >
-                            Refund Policy
-                          </Link>
-                          .
-                        </>
-                      )}
-                    </p>
+                    {/* Legal Checkout Disclaimer */}
+                    <div className="flex items-start gap-3 mt-4 mb-2 p-1">
+                      <Checkbox
+                        id="terms"
+                        checked={agreedToPolicies}
+                        onCheckedChange={(checked) => setAgreedToPolicies(checked as boolean)}
+                        className="mt-1 flex-shrink-0"
+                      />
+                      <label htmlFor="terms" className="text-xs text-muted-foreground leading-relaxed cursor-pointer select-none">
+                        {isAr ? (
+                          <>
+                            بمتابعة الدفع، فإنك توافق على{" "}
+                            <Link
+                              href="/policies#privacy"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline hover:text-primary/80 font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              سياسة الخصوصية
+                            </Link>{" "}
+                            و{" "}
+                            <Link
+                              href="/policies#refund"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline hover:text-primary/80 font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              سياسة الاسترجاع
+                            </Link>{" "}
+                            الخاصة بنا.
+                          </>
+                        ) : (
+                          <>
+                            By proceeding with your payment, you agree to our{" "}
+                            <Link
+                              href="/policies#privacy"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline hover:text-primary/80 font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Privacy Policy
+                            </Link>{" "}
+                            and{" "}
+                            <Link
+                              href="/policies#refund"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline hover:text-primary/80 font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Refund Policy
+                            </Link>
+                            .
+                          </>
+                        )}
+                      </label>
+                    </div>
 
                     {/* Payment Action Button */}
                     <Button
                       onClick={handleProceedToPayment}
-                      disabled={isRedirecting || isCancelling}
+                      disabled={isRedirecting || isCancelling || !agreedToPolicies}
                       className="w-full h-12 text-base font-bold shadow-lg shadow-primary/20 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
                     >
                       {isRedirecting ? (

@@ -28,6 +28,11 @@ export function PaymobHostedCheckoutButton({
   const finalCheckoutUrl = checkoutUrl || getPaymobCheckoutUrl(clientSecret);
 
   const handleRedirectToPaymob = () => {
+    if (!finalCheckoutUrl) {
+      console.error("Paymob checkout URL is missing.");
+      alert("Payment checkout is currently unavailable. Please try again later.");
+      return;
+    }
     setLoading(true);
     // Direct browser redirection to Paymob Unified Hosted Checkout
     window.location.href = finalCheckoutUrl;

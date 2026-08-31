@@ -2910,7 +2910,6 @@ export async function cancelBookingService(id, currentUser, lang = "en") {
   if (result.postCommitRefund) {
     const refundIssued = await attemptRefundSettlement(
       result.postCommitRefund.paymentId,
-      result.postCommitRefund,
     );
     result.refundIssued = refundIssued;
     result.refundPending = !refundIssued;
@@ -3679,7 +3678,6 @@ export async function deleteBookingService(bookingId, currentUser) {
   if (result.postCommitRefund) {
     const refundIssued = await attemptRefundSettlement(
       result.postCommitRefund.paymentId,
-      result.postCommitRefund,
     );
     result.refundIssued = refundIssued;
     result.refundPending = !refundIssued;
