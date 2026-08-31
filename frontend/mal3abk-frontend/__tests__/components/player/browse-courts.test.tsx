@@ -43,6 +43,7 @@ const mockCourt = {
   rating: 4.5,
   reviewCount: 10,
   maxPlayers: 10,
+  allowOnlinePayment: false,
 };
 
 describe("BrowseCourtsPage", () => {

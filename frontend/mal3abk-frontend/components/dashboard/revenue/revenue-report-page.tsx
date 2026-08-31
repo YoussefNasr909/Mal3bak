@@ -477,6 +477,7 @@ const RevenuePageHeader = memo(function RevenuePageHeader({
   description,
   summary,
   labels,
+  currencySuffix,
   showInitialLoad,
   isRefreshing,
   highlighted = false,
@@ -489,6 +490,7 @@ const RevenuePageHeader = memo(function RevenuePageHeader({
     checkedInCount: string
     averageBookingValue: string
   }
+  currencySuffix: string
   showInitialLoad: boolean
   isRefreshing: boolean
   highlighted?: boolean
@@ -500,7 +502,7 @@ const RevenuePageHeader = memo(function RevenuePageHeader({
       key: "revenue",
       label: labels.totalRevenue,
       main: formatMoney(summary.totalRevenue),
-      suffix: "EGP",
+      suffix: currencySuffix,
       tone: "text-primary",
       tile: "border-primary/15 bg-gradient-to-b from-primary/12 to-primary/5",
     },
@@ -516,7 +518,7 @@ const RevenuePageHeader = memo(function RevenuePageHeader({
       key: "average",
       label: labels.averageBookingValue,
       main: formatMoney(summary.averageBookingValue),
-      suffix: "EGP",
+      suffix: currencySuffix,
       tone: "text-amber-600 dark:text-amber-400",
       tile: "border-amber-500/15 bg-gradient-to-b from-amber-500/12 to-amber-500/5",
     },
@@ -1191,6 +1193,7 @@ export function RevenueReportPage({ mode }: { mode: RevenuePageMode }) {
           description={labels.description}
           summary={summary}
           labels={headerSummaryLabels}
+          currencySuffix={language === "ar" ? "ج.م" : "EGP"}
           showInitialLoad={showInitialLoad}
           isRefreshing={isRefreshing}
           highlighted={summaryHighlighted}
