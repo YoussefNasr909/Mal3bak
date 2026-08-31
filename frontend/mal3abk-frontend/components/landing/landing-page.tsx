@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import dynamic from "next/dynamic"
-import { ArrowLeft, ArrowRight, Menu, X } from "lucide-react"
+import { ArrowLeft, ArrowRight, Instagram, Menu, X } from "lucide-react"
 
 import { HeaderLogo } from "@/components/branding/header-logo"
 import { useAuth } from "@/components/providers/auth-provider"
@@ -13,6 +13,22 @@ import { LazySection } from "@/components/ui/lazy-section"
 import { NavbarPreferenceControls } from "@/components/ui/navbar-preference-controls"
 import { cn } from "@/lib/utils"
 import Hero from "./Hero"
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 256 256"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        fill="currentColor"
+        d="M197.6 80.9c-16.9-9.1-30.5-23.4-38.4-40.9h-28.7v122.7c0 23.1-18.7 41.9-41.9 41.9S46.7 186 46.7 162.7c0-23.1 18.7-41.9 41.9-41.9c3.9 0 7.6.6 11.2 1.6v-29.6c-3.7-.5-7.4-.8-11.2-.8c-40.1 0-72.5 32.5-72.5 72.5s32.5 72.5 72.5 72.5c40.1 0 72.5-32.5 72.5-72.5V56.3c11.9 20.4 32.5 35.2 56.4 39v-14.4z"
+      />
+    </svg>
+  )
+}
 
 const Features = dynamic(() => import("./Features"), {
   ssr: false,
@@ -270,6 +286,35 @@ export function LandingPage() {
                         />
                       </Link>
                     </Button>
+                  </div>
+                </div>
+
+                {/* Mobile Drawer Social Links */}
+                <div className="border-t border-border/50 pt-3 pb-3 px-4 mt-auto">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      {language === "ar" ? "تابعنا على" : "Follow Us"}
+                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <Link
+                        href="https://www.tiktok.com/@mal3bk.eg?_r=1&_t=ZS-94vmVUpLBYN"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-muted/60 text-foreground transition-all duration-200 hover:scale-105 hover:border-primary hover:bg-primary hover:text-white dark:hover:text-slate-950"
+                        aria-label="TikTok @mal3bk.eg"
+                      >
+                        <TikTokIcon className="h-4 w-4" />
+                      </Link>
+                      <Link
+                        href="https://www.instagram.com/mal3bk.eg?igsh=a3kzcHFpcWdvb2d6"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-muted/60 text-foreground transition-all duration-200 hover:scale-105 hover:border-pink-500 hover:bg-gradient-to-tr hover:from-amber-500 hover:via-rose-500 hover:to-purple-600 hover:text-white"
+                        aria-label="Instagram @mal3bk.eg"
+                      >
+                        <Instagram className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </div>

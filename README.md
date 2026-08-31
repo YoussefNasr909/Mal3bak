@@ -1,6 +1,6 @@
-# Mal3bak (ملعبك) — Sports Court Booking & Venue Management Platform
+# Mal3bk (ملعبك) — Sports Court Booking & Venue Management Platform
 
-Mal3bak is a full-stack sports venue booking and tournament management platform built for court operators, managers, and sports players across Egypt.
+Mal3bk is a full-stack sports venue booking and tournament management platform built for court operators, managers, and sports players across Egypt.
 
 ---
 
@@ -12,7 +12,7 @@ Mal3bak is a full-stack sports venue booking and tournament management platform 
   - **Unified Hosted Checkout:** Redirection to Paymob's Unified Checkout (`accept.paymob.com/unifiedcheckout/`) supporting cards, mobile wallets, and Apple Pay.
   - **Flexible Deposit Policies:** Configure court-level payment requirements (**Full Payment**, **Percentage Deposit**, or **Fixed EGP Deposit**) with remaining balance collected at the venue.
   - **HMAC SHA-512 Webhooks:** Cryptographically verified callback processing using 20 canonical fields, timing-safe equality checks, and idempotent database transitions.
-  - **15-Minute Reservation Holds:** Automated concurrency lock and hold cleaner sweeping expired checkouts to prevent double bookings and calendar lockups.
+  - **5-Minute Reservation Holds:** Automated concurrency lock and hold cleaner sweeping expired checkouts to prevent double bookings and calendar lockups.
 - **📱 Player Dashboard:** Court browsing, favorites, interactive booking modals, check-in QR/alphanumeric code generation, and payment status tracking.
 - **👑 Manager & Admin Portals:** Venue and court management, pricing and peak-hour configuration, deposit policy controls, tournament management, revenue analytics, and attendee check-in scanners.
 - **🏆 Tournaments Module:** Automated tournament registration windows, team enrollment, bracket scheduling, and match results.
@@ -154,4 +154,4 @@ npm test -- tests/integration/payments.test.js
 
 ## 📄 License
 
-Proprietary — All rights reserved © 2026 Mal3bak Team.
+Proprietary — All rights reserved © 2026 Mal3bk Team.

@@ -53,6 +53,7 @@ const mockCourt = {
   reviewCount: 50,
   totalBookings: 1500,
   maxPlayers: 4,
+  allowOnlinePayment: false,
 };
 
 describe("CourtDetailsPage", () => {

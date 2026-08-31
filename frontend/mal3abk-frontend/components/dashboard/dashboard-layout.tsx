@@ -32,6 +32,11 @@ import {
   Gift,
   Trophy,
   Tag,
+  ShieldCheck,
+  RefreshCcw,
+  Mail,
+  Phone,
+  Instagram,
 } from "lucide-react";
 
 import { useTheme } from "next-themes";
@@ -66,6 +71,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 256 256"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        fill="currentColor"
+        d="M197.6 80.9c-16.9-9.1-30.5-23.4-38.4-40.9h-28.7v122.7c0 23.1-18.7 41.9-41.9 41.9S46.7 186 46.7 162.7c0-23.1 18.7-41.9 41.9-41.9c3.9 0 7.6.6 11.2 1.6v-29.6c-3.7-.5-7.4-.8-11.2-.8c-40.1 0-72.5 32.5-72.5 72.5s32.5 72.5 72.5 72.5c40.1 0 72.5-32.5 72.5-72.5V56.3c11.9 20.4 32.5 35.2 56.4 39v-14.4z"
+      />
+    </svg>
+  );
+}
 
 interface NavItem {
   href: string;
@@ -602,10 +623,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               </div>
             </nav>
 
-            {/* Footer */}
+            {/* Footer / Support & Legal */}
             <div className="border-t border-sidebar-border/60 p-2.5 space-y-1.5">
               {!sidebarCollapsed ? (
                 <>
+                  <div className="px-2.5 pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                    {language === "ar" ? "الدعم والسياسات" : "Support & Legal"}
+                  </div>
+
                   <Link
                     href="/dashboard/help"
                     aria-current={
@@ -631,6 +656,31 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                       <HelpCircle className="h-4 w-4" />
                     </span>
                     {t("nav.help")}
+                  </Link>
+
+                  <Link
+                    href="/policies"
+                    aria-current={
+                      pathname.startsWith("/policies") ? "page" : undefined
+                    }
+                    className={cn(
+                      "group/policies flex items-center gap-2.5 rounded-xl border px-2.5 py-2 text-sm font-semibold transition-all duration-200",
+                      pathname.startsWith("/policies")
+                        ? "border-primary/15 bg-primary/[0.08] text-primary shadow-sm"
+                        : "border-transparent text-sidebar-foreground/78 hover:border-border/50 hover:bg-background/55",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200",
+                        pathname.startsWith("/policies")
+                          ? "bg-primary/14 text-primary"
+                          : "text-sidebar-foreground/68 group-hover/policies:text-primary",
+                      )}
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                    </span>
+                    {language === "ar" ? "السياسات والشروط" : "Policies & Terms"}
                   </Link>
 
                   <button
@@ -683,6 +733,38 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                         className="rounded-xl"
                       >
                         {t("nav.help")}
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Link
+                          href="/policies"
+                          aria-current={
+                            pathname.startsWith("/policies") ? "page" : undefined
+                          }
+                          className={cn(
+                            "inline-flex h-10 w-full items-center justify-center rounded-2xl border transition-all duration-200",
+                            pathname.startsWith("/policies")
+                              ? "border-primary/20 bg-primary/[0.10] text-primary shadow-sm"
+                              : "border-transparent bg-background/70 text-sidebar-foreground/75 hover:border-border/60 hover:bg-background",
+                          )}
+                          aria-label={
+                            language === "ar"
+                              ? "السياسات والشروط"
+                              : "Policies & Terms"
+                          }
+                        >
+                          <ShieldCheck className="h-5 w-5" />
+                        </Link>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side={direction === "rtl" ? "left" : "right"}
+                        className="rounded-xl"
+                      >
+                        {language === "ar"
+                          ? "السياسات والشروط"
+                          : "Policies & Terms"}
                       </TooltipContent>
                     </Tooltip>
 
@@ -814,6 +896,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </nav>
 
                 <div className="border-t border-sidebar-border/60 p-3 space-y-2">
+                  <div className="px-2.5 pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                    {language === "ar" ? "الدعم والسياسات" : "Support & Legal"}
+                  </div>
+
                   <Link
                     href="/dashboard/help"
                     onClick={() => setSidebarOpen(false)}
@@ -841,6 +927,33 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                     </span>
                     {t("nav.help")}
                   </Link>
+
+                  <Link
+                    href="/policies"
+                    onClick={() => setSidebarOpen(false)}
+                    aria-current={
+                      pathname.startsWith("/policies") ? "page" : undefined
+                    }
+                    className={cn(
+                      "group/mobile-policies flex items-center gap-2.5 rounded-xl border px-2.5 py-2.5 text-sm font-semibold transition-all duration-200",
+                      pathname.startsWith("/policies")
+                        ? "border-primary/15 bg-primary/[0.08] text-primary shadow-sm"
+                        : "border-transparent text-sidebar-foreground/78 hover:border-border/50 hover:bg-background/55",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200",
+                        pathname.startsWith("/policies")
+                          ? "bg-primary/14 text-primary"
+                          : "text-sidebar-foreground/68 group-hover/mobile-policies:text-primary",
+                      )}
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                    </span>
+                    {language === "ar" ? "السياسات والشروط" : "Policies & Terms"}
+                  </Link>
+
                   <button
                     onClick={handleLogout}
                     className="group/mobile-logout flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2.5 py-2.5 text-sm font-semibold text-sidebar-foreground/78 transition-all duration-200 hover:border-destructive/12 hover:bg-destructive/8 hover:text-destructive"
@@ -982,6 +1095,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                       {language === "ar" ? "الإشعارات" : "Notifications"}
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator className="mx-1 my-1" />
+                  <DropdownMenuItem asChild className="h-10 rounded-2xl px-3 text-xs text-muted-foreground hover:text-foreground">
+                    <Link href="/policies#privacy">
+                      <ShieldCheck className="me-2 h-3.5 w-3.5 text-primary" />
+                      {language === "ar" ? "سياسة الخصوصية" : "Privacy Policy"}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild className="h-10 rounded-2xl px-3 text-xs text-muted-foreground hover:text-foreground">
+                    <Link href="/policies#refund">
+                      <RefreshCcw className="me-2 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      {language === "ar" ? "سياسة الاسترجاع" : "Refund Policy"}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="mx-1 my-1" />
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -1003,13 +1130,78 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           {/* Content */}
           <main
             id="dashboard-main"
-            className="min-w-0 flex-1 overflow-x-clip bg-gradient-to-b from-background via-background to-muted/20"
+            className="flex min-w-0 flex-1 flex-col overflow-x-clip bg-gradient-to-b from-background via-background to-muted/20"
           >
-            <div className="container-responsive max-w-full p-4 md:p-6 lg:p-8">
+            <div className="container-responsive max-w-full flex-1 p-4 md:p-6 lg:p-8">
               <AnimatedContainer animation="fade-in" delay={0.05}>
                 {children}
               </AnimatedContainer>
             </div>
+
+            {/* Dashboard Mini-Footer */}
+            <footer className="mt-auto border-t border-border/40 bg-card/30 px-4 py-4 text-xs text-muted-foreground backdrop-blur-xs sm:px-6 lg:px-8">
+              <div className="container-responsive flex flex-col items-center justify-between gap-3 sm:flex-row">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-center sm:text-start">
+                  <span>
+                    © {new Date().getFullYear()}{" "}
+                    {language === "ar"
+                      ? "منصة ملعبك. جميع الحقوق محفوظة."
+                      : "Mal3bk. All rights reserved."}
+                  </span>
+                  <Link
+                    href="/policies"
+                    className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline transition-colors"
+                  >
+                    {language === "ar" ? "الشروط والسياسات" : "Policies & Terms"}
+                  </Link>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  {/* Contact Links */}
+                  <a
+                    href="mailto:mal3bkk@gmail.com"
+                    className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                    title="mal3bkk@gmail.com"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">mal3bkk@gmail.com</span>
+                  </a>
+                  <a
+                    href="tel:+201131734350"
+                    dir="ltr"
+                    className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                    title="+20 11 31734350"
+                  >
+                    <Phone className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">+20 11 31734350</span>
+                  </a>
+
+                  <div className="h-3.5 w-px bg-border/60" />
+
+                  {/* Social Links */}
+                  <div className="flex items-center gap-2">
+                    <a
+                      href="https://www.tiktok.com/@mal3bk.eg?_r=1&_t=ZS-94vmVUpLBYN"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground transition-all hover:scale-105 hover:border-primary hover:bg-primary hover:text-white dark:hover:text-slate-950"
+                      aria-label="TikTok @mal3bk.eg"
+                    >
+                      <TikTokIcon className="h-3.5 w-3.5" />
+                    </a>
+                    <a
+                      href="https://www.instagram.com/mal3bk.eg?igsh=a3kzcHFpcWdvb2d6"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground transition-all hover:scale-105 hover:border-primary hover:bg-primary hover:text-white dark:hover:text-slate-950"
+                      aria-label="Instagram @mal3bk.eg"
+                    >
+                      <Instagram className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </footer>
           </main>
         </div>
       </div>

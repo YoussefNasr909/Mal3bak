@@ -1832,12 +1832,12 @@ export async function createBookingService(payload, currentUser) {
       computedAmount = Math.min(finalTotalPrice, Number(court.depositValue));
     }
 
-    // Any court that accepts online payment creates a PENDING hold with a 15-minute TTL — never
+    // Any court that accepts online payment creates a PENDING hold with a 5-minute TTL — never
     // a permanent unpaid `confirmed` lock. The slot is only confirmed once payment settles via
     // the webhook/inquiry pipeline. Cash-only courts (no online payment) stay immediately confirmed.
     const requiresOnlinePayment = court.allowOnlinePayment === true;
     const initialStatus = requiresOnlinePayment ? "pending" : "confirmed";
-    const initialExpiresAt = requiresOnlinePayment ? new Date(Date.now() + 15 * 60 * 1000) : null;
+    const initialExpiresAt = requiresOnlinePayment ? new Date(Date.now() + 5 * 60 * 1000) : null;
 
     const booking = await tx.booking.create({
       data: {

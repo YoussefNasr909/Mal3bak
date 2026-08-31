@@ -106,7 +106,7 @@ export function PaymentReceiptModal({
 
   const handleCopySummary = async () => {
     const summaryText = `
-🧾 ${tr("إيصال حجز ملعبك الإلكتروني", "Mal3bak Official Booking Receipt")}
+🧾 ${tr("إيصال حجز ملعبك الإلكتروني", "Mal3bk Official Booking Receipt")}
 --------------------------------
 🏟️ ${tr("الملعب", "Court")}: ${courtName}
 📅 ${tr("التاريخ", "Date")}: ${booking.date}
@@ -116,7 +116,7 @@ export function PaymentReceiptModal({
 ${remainingDueAtCourt > 0 ? `💵 ${tr("المتبقي في الملعب", "Remaining Balance at Court")}: ${remainingDueAtCourt} EGP` : `✅ ${tr("تم دفع المبلغ كاملاً", "Fully Paid")}`}
 🔢 ${tr("رقم المعاملة", "Tx ID")}: ${transactionId}
 --------------------------------
-${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using Mal3bak!")}
+${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using Mal3bk!")}
 `.trim()
 
     try {
@@ -143,7 +143,7 @@ ${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using 
       <!DOCTYPE html>
       <html dir="${isRTL ? "rtl" : "ltr"}" lang="${language}">
       <head>
-        <title>${tr("إيصال دفع إلكتروني - ملعبك", "Payment Receipt - Mal3bak")}</title>
+        <title>${tr("إيصال دفع إلكتروني - ملعبك", "Payment Receipt - Mal3bk")}</title>
         <meta charset="utf-8" />
         <style>
           body {
@@ -224,7 +224,7 @@ ${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using 
       <body>
         <div class="receipt-container">
           <div class="header">
-            <div class="logo">MAL3BAK ⚽ ملعبك</div>
+            <div class="logo">MAL3BK ⚽ ملعبك</div>
             <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">${tr("إيصال دفع إلكتروني معتمد", "Official Electronic Receipt")}</div>
             <div class="badge">${tr("تم الدفع بنجاح عبر Paymob", "Paid Successfully via Paymob")}</div>
           </div>
@@ -316,7 +316,7 @@ ${tr("شكراً لاستخدامك منصة ملعبك!", "Thank you for using 
             <DialogHeader className="pt-1">
               <DialogTitle className="text-xl font-black tracking-tight text-foreground flex items-center justify-center gap-2">
                 <Receipt className="h-5 w-5 text-primary" />
-                <span>MAL3BAK</span>
+                <span>MAL3BK</span>
                 <span className="text-xs font-normal text-muted-foreground">| ملعبك</span>
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">

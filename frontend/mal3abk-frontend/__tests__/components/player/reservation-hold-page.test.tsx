@@ -7,6 +7,7 @@ import * as langProvider from "@/components/providers/language-provider";
 vi.mock("@/lib/api", () => ({
   getBookingHoldStatus: vi.fn(),
   cancelBooking: vi.fn(),
+  createPaymobCheckoutSession: vi.fn(),
 }));
 
 vi.mock("@/components/providers/language-provider", () => ({
@@ -27,11 +28,11 @@ describe("ReservationHoldPage", () => {
     (langProvider.useLanguage as any).mockReturnValue({
       language: "en",
       direction: "ltr",
-      t: (key: string) => key,
+      t: (key: string) => (key === "common.egp" ? "EGP" : key),
     });
   });
 
-  it("renders loading state initially and then shows active countdown timer and court details", async () => {
+  it("renders loading state initially and then shows active countdown timer, court details, disclaimer, and payment button", async () => {
     (api.getBookingHoldStatus as any).mockResolvedValue({
       bookingId: "booking-123",
       status: "pending",
@@ -61,18 +62,16 @@ describe("ReservationHoldPage", () => {
       expect(screen.getByText("Al Ahly Padel Court")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Debit / Card")).toBeInTheDocument();
-    expect(screen.getByText("Mobile Wallet")).toBeInTheDocument();
-    expect(screen.getByText("Proceed with Card Payment")).toBeInTheDocument();
+    // Check legal disclaimer and links
+    expect(screen.getByText("Privacy Policy")).toBeInTheDocument();
+    expect(screen.getByText("Refund Policy")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/policies#privacy");
+    expect(screen.getByRole("link", { name: "Refund Policy" })).toHaveAttribute("href", "/policies#refund");
+
+    // Check action buttons and countdown
+    expect(screen.getByText("Proceed to Payment via Paymob")).toBeInTheDocument();
     expect(screen.getByText("Cancel Reservation Hold")).toBeInTheDocument();
     expect(screen.getByTestId("countdown-timer-display")).toBeInTheDocument();
-
-    // Switch to Mobile Wallet tab
-    const walletTab = screen.getByText("Mobile Wallet");
-    fireEvent.click(walletTab);
-
-    expect(screen.getByText("Wallet Mobile Number")).toBeInTheDocument();
-    expect(screen.getByText("Pay 200.00 EGP via Wallet")).toBeInTheDocument();
   });
 
   it("shows expired state when hold is expired", async () => {

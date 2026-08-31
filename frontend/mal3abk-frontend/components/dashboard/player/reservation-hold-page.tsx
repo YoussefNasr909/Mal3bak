@@ -50,9 +50,10 @@ export function ReservationHoldPage({
   const searchParams = useSearchParams()
   const checkoutUrlFromQuery = searchParams.get("checkoutUrl") || initialCheckoutUrl
 
-  const { language, direction } = useLanguage()
+  const { language, direction, t } = useLanguage()
   const isAr = language === "ar"
   const tr = useCallback((ar: string, en: string) => (language === "ar" ? ar : en), [language])
+  const egpLabel = t("common.egp") ?? (isAr ? "ج.م" : "EGP")
   const BackArrow = isAr ? ArrowRight : ArrowLeft
 
   const [holdData, setHoldData] = useState<BookingHoldStatus | null>(null)
@@ -529,7 +530,56 @@ export function ReservationHoldPage({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Payment Method Switcher Tabs */}
+                    {/* Legal Checkout Disclaimer */}
+                    <p className="text-xs text-muted-foreground text-center mt-4 mb-2 leading-relaxed">
+                      {isAr ? (
+                        <>
+                          بمتابعة الدفع، فإنك توافق على{" "}
+                          <Link
+                            href="/policies#privacy"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary underline hover:text-primary/80 font-medium"
+                          >
+                            سياسة الخصوصية
+                          </Link>{" "}
+                          و{" "}
+                          <Link
+                            href="/policies#refund"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary underline hover:text-primary/80 font-medium"
+                          >
+                            سياسة الاسترجاع
+                          </Link>{" "}
+                          الخاصة بنا.
+                        </>
+                      ) : (
+                        <>
+                          By proceeding with your payment, you agree to our{" "}
+                          <Link
+                            href="/policies#privacy"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary underline hover:text-primary/80 font-medium"
+                          >
+                            Privacy Policy
+                          </Link>{" "}
+                          and{" "}
+                          <Link
+                            href="/policies#refund"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary underline hover:text-primary/80 font-medium"
+                          >
+                            Refund Policy
+                          </Link>
+                          .
+                        </>
+                      )}
+                    </p>
+
+                    {/* Payment Action Button */}
                     <Button
                       onClick={handleProceedToPayment}
                       disabled={isRedirecting || isCancelling}
@@ -620,7 +670,7 @@ export function ReservationHoldPage({
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>{tr("السعر الإجمالي للملعب", "Total Court Fee")}</span>
                     <span className="font-semibold text-foreground">
-                      {holdData?.totalPrice?.toFixed(2) || "0.00"} {tr("ج.م", "EGP")}
+                      {holdData?.totalPrice?.toFixed(2) || "0.00"} {egpLabel}
                     </span>
                   </div>
 
@@ -631,7 +681,7 @@ export function ReservationHoldPage({
                         {tr("كوبون الخصم", "Coupon")} ({holdData.couponCode})
                       </span>
                       <span className="font-semibold">
-                        -{holdData.discountValue?.toFixed(2)} {tr("ج.م", "EGP")}
+                        -{holdData.discountValue?.toFixed(2)} {egpLabel}
                       </span>
                     </div>
                   )}
@@ -642,7 +692,7 @@ export function ReservationHoldPage({
                       <span>{tr("المبلغ المطلوب دفعه الآن", "Amount Due Now")}</span>
                     </div>
                     <span className="text-primary text-lg">
-                      {holdData?.amount?.toFixed(2) || "0.00"} {tr("ج.م", "EGP")}
+                      {holdData?.amount?.toFixed(2) || "0.00"} {egpLabel}
                     </span>
                   </div>
                 </div>

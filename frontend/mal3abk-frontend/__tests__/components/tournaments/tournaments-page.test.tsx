@@ -130,7 +130,7 @@ describe("TournamentsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Create tournament/i }));
     const dialog = await screen.findByRole("dialog");
-    const [titleInput] = within(dialog).getAllByRole("textbox");
+    const titleInput = within(dialog).getByLabelText(/Tournament title/i);
 
     fireEvent.change(titleInput, { target: { value: "Spring Cup" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Next/i }));
@@ -163,7 +163,7 @@ describe("TournamentsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Create tournament/i }));
     const dialog = await screen.findByRole("dialog");
-    const [titleInput] = within(dialog).getAllByRole("textbox");
+    const titleInput = within(dialog).getByLabelText(/Tournament title/i);
 
     fireEvent.change(titleInput, { target: { value: "Spring Cup" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /Next/i }));

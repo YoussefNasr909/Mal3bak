@@ -95,9 +95,44 @@ describe("DashboardLayout logout behavior", () => {
       </DashboardLayout>,
     )
 
-    // The layout now renders a skeleton UI (represented by data-slot="skeleton") when !isAuthenticated
-    // instead of showing "Redirecting to login..."
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
     expect(mockRouter.replace).not.toHaveBeenCalled()
+  })
+
+  it("renders authenticated navigation with Support & Legal policies link and mini-footer", () => {
+    mockUseAuth.mockReturnValue({
+      user: {
+        id: "user-123",
+        name: "Capt. Majed",
+        email: "majed@example.com",
+        role: "player",
+        avatar: null,
+      },
+      logout: vi.fn(),
+      isAuthenticated: true,
+      isLoading: false,
+      isLoggingOut: false,
+      sessionExpired: false,
+      setSessionExpired: vi.fn(),
+    })
+
+    render(
+      <DashboardLayout>
+        <div>Dashboard Main Child Content</div>
+      </DashboardLayout>,
+    )
+
+    expect(screen.getByText("Dashboard Main Child Content")).toBeInTheDocument()
+
+    // Support & Legal policy links
+    const policyLinks = screen.getAllByRole("link", { name: /Policies & Terms/i })
+    expect(policyLinks.length).toBeGreaterThan(0)
+    expect(policyLinks[0]).toHaveAttribute("href", "/policies")
+
+    // Mini-footer contact & social links
+    expect(screen.getByTitle("mal3bkk@gmail.com")).toHaveAttribute("href", "mailto:mal3bkk@gmail.com")
+    expect(screen.getByTitle("+20 11 31734350")).toHaveAttribute("href", "tel:+201131734350")
+    expect(screen.getByLabelText("TikTok @mal3bk.eg")).toHaveAttribute("href", expect.stringContaining("tiktok.com"))
+    expect(screen.getByLabelText("Instagram @mal3bk.eg")).toHaveAttribute("href", expect.stringContaining("instagram.com"))
   })
 })
