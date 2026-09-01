@@ -23,8 +23,11 @@ export default async function LoginPage({
 
   const user = await getServerSessionUser()
 
-  if (user) {
-    redirect(sanitizeInternalRedirect(resolvedSearchParams.redirect, user.role, getDefaultDashboardPath(user.role)))
+  // Only auto-redirect if there is no explicit redirect parameter.
+  // If ?redirect=... is present, the user was bounced from a protected route;
+  // auto-redirecting back to it creates an infinite ping-pong loop.
+  if (user && !resolvedSearchParams.redirect) {
+    redirect(getDefaultDashboardPath(user.role))
   }
 
   return <LoginForm />

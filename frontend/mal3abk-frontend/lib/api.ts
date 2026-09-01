@@ -240,6 +240,10 @@ if (!res.ok) {
     throw new ApiError(msg, res.status, body || undefined)
   }
 
+  if (body === null && res.status !== 204) {
+    throw new NetworkError("Received non-JSON response from server")
+  }
+
   return (body as T) ?? ({} as T)
 }
 
