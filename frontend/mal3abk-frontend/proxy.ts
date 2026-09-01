@@ -121,6 +121,7 @@ async function maybeRefreshDashboardSession(request: NextRequest, requestHeaders
         }),
         Origin: siteOrigin,
         Referer: `${siteOrigin}${pathname}`,
+        "ngrok-skip-browser-warning": "true",
       },
       cache: "no-store",
       signal: controller.signal,
@@ -153,6 +154,7 @@ export async function proxy(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set("x-pathname", request.nextUrl.pathname)
   requestHeaders.set("x-search", request.nextUrl.search)
+  requestHeaders.set("ngrok-skip-browser-warning", "true")
 
   const { requestHeaders: nextRequestHeaders, setCookieValues } = await maybeRefreshDashboardSession(request, requestHeaders)
 

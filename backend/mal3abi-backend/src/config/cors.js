@@ -16,3 +16,16 @@ const parsedOrigins = parseOrigins(
 
 // ✅ Allow origins from all supported env names instead of only the first populated one.
 export const allowedOrigins = parsedOrigins.length > 0 ? parsedOrigins : ["http://localhost:3000"];
+
+export function isOriginAllowed(origin) {
+  if (!origin) return true;
+  const normalized = normalizeOrigin(origin);
+  if (allowedOrigins.includes(normalized)) return true;
+  try {
+    const url = new URL(normalized);
+    if (url.hostname.endsWith(".vercel.app")) {
+      return true;
+    }
+  } catch {}
+  return false;
+}

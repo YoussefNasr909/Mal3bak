@@ -102,6 +102,7 @@ async function tryServerRefresh(cookieHeader: string, requestHeaders?: RequestHe
   try {
     const requestOrigin = requestHeaders ? resolveRequestOrigin(requestHeaders) : undefined
     const refreshHeaders: Record<string, string> = requestHeaders ? getForwardedClientHeaders(requestHeaders) : {}
+    refreshHeaders["ngrok-skip-browser-warning"] = "true"
     if (cookieHeader) refreshHeaders.Cookie = cookieHeader
     if (requestOrigin) {
       refreshHeaders.Origin = requestOrigin
@@ -135,8 +136,13 @@ async function fetchSessionUser(cookieHeader: string, allowRefresh = true, reque
 
   let res: Response
   try {
+    const sessionHeaders: Record<string, string> = {
+      "ngrok-skip-browser-warning": "true",
+    }
+    if (cookieHeader) sessionHeaders.Cookie = cookieHeader
+
     res = await fetch(`${baseUrl}/auth/session`, {
-      headers: cookieHeader ? { Cookie: cookieHeader } : {},
+      headers: sessionHeaders,
       cache: "no-store",
       signal: controller.signal,
     })

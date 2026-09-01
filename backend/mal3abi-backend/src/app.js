@@ -13,7 +13,7 @@ import notificationPreferencesRoutes from "./modules/notifications/notification-
 import pushSubscriptionsRoutes from "./modules/notifications/push-subscriptions.routes.js";
 import paymentsRoutes from "./modules/payments/payments.routes.js";
 import couponsRoutes from "./modules/coupons/coupons.routes.js";
-import { allowedOrigins } from "./config/cors.js";
+import { allowedOrigins, isOriginAllowed } from "./config/cors.js";
 import { csrfProtection } from "./middleware/csrf.js";
 import { createRateLimiter, GLOBAL_RATE_LIMIT_CONFIG } from "./utils/rateLimit.js";
 
@@ -28,8 +28,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (isOriginAllowed(origin)) return callback(null, true);
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,

@@ -1,4 +1,4 @@
-import { allowedOrigins } from "../config/cors.js";
+import { allowedOrigins, isOriginAllowed } from "../config/cors.js";
 
 function hasBearerToken(req) {
   const authorization = req.headers.authorization;
@@ -40,7 +40,7 @@ export function csrfProtection(req, res, next) {
 
   if (origin) {
     const normalizedOrigin = origin.trim().replace(/\/+$/, "");
-    if (allowedOrigins.includes(normalizedOrigin)) {
+    if (isOriginAllowed(normalizedOrigin)) {
       return next();
     }
   }
@@ -49,7 +49,7 @@ export function csrfProtection(req, res, next) {
     try {
       const refererUrl = new URL(referer);
       const refererOrigin = `${refererUrl.protocol}//${refererUrl.host}`;
-      if (allowedOrigins.includes(refererOrigin)) {
+      if (isOriginAllowed(refererOrigin)) {
         return next();
       }
     } catch {

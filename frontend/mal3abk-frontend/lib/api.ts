@@ -72,6 +72,7 @@ function emitNotificationsRefresh() {
 
 function buildRequestHeaders(options: NextFetchOptions = {}) {
   const headers = new Headers(options.headers || {})
+  headers.set("ngrok-skip-browser-warning", "true")
   const hasBody = options.body !== undefined && options.body !== null
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData
   if (hasBody && !isFormData && !headers.has("Content-Type")) {
@@ -146,6 +147,7 @@ async function tryRefreshSession() {
         cache: "no-store",
         headers: (() => {
           const refreshHeaders = new Headers()
+          refreshHeaders.set("ngrok-skip-browser-warning", "true")
           refreshHeaders.set("x-skip-auth-refresh", "1")
           refreshHeaders.set("Content-Type", "application/json")
           return refreshHeaders
@@ -255,6 +257,7 @@ async function uploadWithAuthRetry(path: string, formData: FormData, failureMess
       body: formData,
       headers: (() => {
         const uploadHeaders = new Headers()
+        uploadHeaders.set("ngrok-skip-browser-warning", "true")
         uploadHeaders.set("x-upload-request", "1")
         return uploadHeaders
       })(),
