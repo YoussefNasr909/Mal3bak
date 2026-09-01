@@ -1,10 +1,11 @@
 import type { Metadata } from "next"
-import { CouponsPage } from "@/components/dashboard/coupons/coupons-page"
+import { redirect } from "next/navigation"
 
 export const metadata: Metadata = {
   title: "Manager Coupons & Promo Codes",
 }
 
 export default function ManagerCouponsRoute() {
-  return <CouponsPage role="manager" />
+  // Temporary: Disable manager access to promo codes page
+  redirect("/dashboard/manager")
 }

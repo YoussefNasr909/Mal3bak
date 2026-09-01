@@ -189,12 +189,12 @@ export const dashboardNavItems: NavItem[] = [
     labelKey: "dashboard.tournaments",
     roles: ["manager"],
   },
-  {
-    href: "/dashboard/manager/coupons",
-    icon: Tag,
-    labelKey: "dashboard.coupons",
-    roles: ["manager"],
-  },
+  // {
+  //   href: "/dashboard/manager/coupons",
+  //   icon: Tag,
+  //   labelKey: "dashboard.coupons",
+  //   roles: ["manager"],
+  // },
 
   {
     href: "/dashboard/player/browse",
